@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import StatCard from '../components/StatCard'
 import { useUser } from '../context/UserContext'
 
 function Profile() {
-  const { user } = useUser()
+  const { user, updateIQScore } = useUser()
   const [notificationsOn, setNotificationsOn] = useState(true)
   const [darkMode, setDarkMode] = useState(true)
 
@@ -19,14 +20,8 @@ function Profile() {
       </div>
 
       <div className="stat-grid">
-        <div className="stat-card">
-          <div className="stat-value">{user.tripsThisMonth}</div>
-          <div className="stat-label">Trips this month</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{user.gemsFound}</div>
-          <div className="stat-label">Gems found</div>
-        </div>
+        <StatCard label="Trips this month" value={user.tripsThisMonth} />
+        <StatCard label="Gems found" value={user.gemsFound} />
       </div>
 
       <div className="section-card">

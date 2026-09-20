@@ -32,9 +32,13 @@ export const allGems = [
   { id: 5, name: 'Total Energies — 24hr, well-lit', category: 'Fuel', detour: '0.6 km', votes: 340 },
   { id: 6, name: 'Karura Forest gate viewpoint', category: 'Scenic', detour: '1.8 km', votes: 512 },
   { id: 7, name: 'Public washrooms — Yaya Centre', category: 'Facilities', detour: '0.2 km', votes: 88 },
+  { id: 8, name: 'Nairobi National Museum', category: 'Attractions', detour: '1.2 km', votes: 305 },
+  { id: 9, name: 'Giraffe Centre', category: 'Attractions', detour: '3.4 km', votes: 623 },
+  { id: 10, name: 'Trademark Hotel — Village Market', category: 'Hotels', detour: '0.8 km', votes: 197 },
+  { id: 11, name: 'Karen Country Lodge', category: 'Hotels', detour: '1.5 km', votes: 143 },
 ]
 
-export const gemCategories = ['All', 'Food', 'Fuel', 'Scenic', 'Facilities']
+export const gemCategories = ['All', 'Attractions', 'Hotels', 'Food', 'Fuel', 'Scenic', 'Facilities']
 
 export const routeOptions = [
   {

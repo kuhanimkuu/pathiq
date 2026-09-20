@@ -1,11 +1,11 @@
 import { NavLink } from 'react-router-dom'
 
 const tabs = [
-  { to: '/', label: 'Home', icon: '🏠' },
-  { to: '/map', label: 'Map', icon: '🗺️' },
-  { to: '/routes', label: 'Routes', icon: '🧭' },
-  { to: '/gems', label: 'Gems', icon: '💎' },
-  { to: '/profile', label: 'Profile', icon: '👤' },
+  { to: '/app', label: 'Home', icon: '🏠' },
+  { to: '/app/map', label: 'Map', icon: '🗺️' },
+  { to: '/app/routes', label: 'Routes', icon: '🧭' },
+  { to: '/app/gems', label: 'Gems', icon: '💎' },
+  { to: '/app/profile', label: 'Profile', icon: '👤' },
 ]
 
 function TabBar() {
@@ -15,7 +15,7 @@ function TabBar() {
         <NavLink
           key={tab.to}
           to={tab.to}
-          end={tab.to === '/'}
+          end={tab.to === '/app'}
           className={({ isActive }) => 'tab-item' + (isActive ? ' active' : '')}
         >
           <span className="tab-icon">{tab.icon}</span>

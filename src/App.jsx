@@ -1,13 +1,51 @@
-import { Routes, Route } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import TopBar from './components/TopBar'
 import TabBar from './components/TabBar'
-import Landing from './pages/Landing'
+import MarketingLayout from './pages/marketing/MarketingLayout'
+import MarketingHome from './pages/marketing/Home'
+import HiddenGemsPage from './pages/marketing/HiddenGemsPage'
+import MapFeaturePage from './pages/marketing/MapFeaturePage'
+import ScoutProgramPage from './pages/marketing/ScoutProgramPage'
+import DevelopersPage from './pages/marketing/DevelopersPage'
+import PricingPage from './pages/marketing/PricingPage'
 import Home from './pages/Home'
 import MapPage from './pages/MapPage'
 import RoutesPage from './pages/RoutesPage'
 import Gems from './pages/Gems'
 import Profile from './pages/Profile'
+import Admin from './pages/Admin'
+import ScoutSubmit from './pages/ScoutSubmit'
+import { useAuth } from './context/useAuth'
 import './App.css'
+
+// /app/* needs a session, but never shows an auth wall to get one — arriving
+// with no session silently starts a guest one, the same way opening Google
+// Maps just works. Explicit sign-in/sign-up stays reachable from the
+// marketing nav for people who want a real account up front.
+function RequireSession({ children }) {
+  const { session, loading, continueAsGuest } = useAuth()
+  const attemptedGuest = useRef(false)
+  const [guestFailed, setGuestFailed] = useState(false)
+
+  useEffect(() => {
+    if (loading || session || attemptedGuest.current) return
+    attemptedGuest.current = true
+    continueAsGuest().catch(() => setGuestFailed(true))
+  }, [loading, session, continueAsGuest])
+
+  if (guestFailed) {
+    return (
+      <div className="app-loading">
+        Couldn&apos;t start a session — check your connection and reload.
+      </div>
+    )
+  }
+  if (loading || !session) {
+    return <div className="app-loading">Loading…</div>
+  }
+  return children
+}
 
 function AppShell() {
   return (
@@ -20,6 +58,8 @@ function AppShell() {
           <Route path="/routes" element={<RoutesPage />} />
           <Route path="/gems" element={<Gems />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/scout" element={<ScoutSubmit />} />
+          <Route path="/admin" element={<Admin />} />
         </Routes>
       </main>
       <TabBar />
@@ -30,8 +70,26 @@ function AppShell() {
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/app/*" element={<AppShell />} />
+      <Route element={<MarketingLayout />}>
+        <Route path="/" element={<MarketingHome />} />
+        {/* Road Conditions and Route Intelligence merged into /map — see
+            MapFeaturePage.jsx. Redirects here so no old link 404s. */}
+        <Route path="/product" element={<Navigate to="/map" replace />} />
+        <Route path="/route-intelligence" element={<Navigate to="/map" replace />} />
+        <Route path="/hidden-gems" element={<HiddenGemsPage />} />
+        <Route path="/map" element={<MapFeaturePage />} />
+        <Route path="/scout-program" element={<ScoutProgramPage />} />
+        <Route path="/developers" element={<DevelopersPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
+      </Route>
+      <Route
+        path="/app/*"
+        element={
+          <RequireSession>
+            <AppShell />
+          </RequireSession>
+        }
+      />
     </Routes>
   )
 }

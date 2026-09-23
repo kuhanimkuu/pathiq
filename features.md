@@ -6,6 +6,33 @@ Priority key: **P0** = the MVP doesn't work without it. **P1** = MVP, should shi
 
 ---
 
+## Build status (2026-09-23)
+
+Built and verified against a real hosted Supabase project (schema, RLS, spatial functions, review workflow — see `supabase/README.md`):
+
+- **Auth:** sign up, sign in, guest mode (anonymous auth), guest-to-real-account upgrade, sign out.
+- **Hidden Gems browse and filter, Save a gem:** real data, live in the app (not mock).
+- **Gem ratings/confirmations:** star rating on the Gems page, feeds `rating_avg`/`confirmations_count`.
+- **"Gems near you" and "Incidents near you"** on the Home dashboard: real nearby-radius queries using the browser's Geolocation API (`gems_near_point`, `road_reports_near_point`) — independent of Google Maps, so these work today.
+- **Scout application flow:** apply from Profile, admin approves/rejects from `/app/admin`.
+- **Scout submission:** road reports and new gems, from `/app/scout` (Scouts and admins only).
+- **Admin review console** (`/app/admin`, admin-only): approve/reject pending gems, road reports and Scout applications; mark Scout earnings as paid.
+
+**Still mock/not built:** route options/scoring in the UI (the `routes` edge function itself is built and tested — see `architecture.md` — just not called from any page yet, pending the Google Maps key), "Active route" on Home, trip tracking, and the IQ Score algorithm.
+
+**Redesigned (2026-09-23):** the whole platform now runs on one Figma-designed token system, in dark and light theme (the "Dark mode" Settings toggle is real now). The live map (`/app/map`) is built — a radar-style view using real bearing/distance from the driver's actual position (not fabricated geometry), since there's no Google Maps yet. The app shell is responsive: a left sidebar at ≥900px instead of a stretched phone layout. See `design-brief.md`.
+
+**Product direction (2026-09-23):** the platform must feel map-first with **zero auth friction** for viewing — arriving at `/app/*` with no session now silently starts a guest one (`RequireSession` in `src/App.jsx`), the way opening Google Maps just works. "Map" in the nav goes straight to the live map, not through a marketing pitch page first. Road Conditions and Route Intelligence are folded into the `/map` marketing page as sections, not separate nav items — on the real map they're already just layers of one thing (`MapFeaturePage.jsx`). The primary nav is now **Map, Hidden Gems, Scout Program** (3 items; old `/product` and `/route-intelligence` URLs redirect to `/map`). There are three user tiers, each with a different nav:
+1. **Casual/average users** (the default): Map and Gems focused. Pricing and Developers are deliberately not in their nav.
+2. **Business/partner users** — not built yet. People who want to list products (e.g. hotels) get a different account type and nav, with tools to add/manage their own listings. Distinct from the Scout role.
+3. **Developer users** — not built yet. A separate account type/setup flow for API keys; this is where Pricing and the Developers content belong.
+
+See the `pathiq-tiered-user-access` memory for the full reasoning.
+
+**Route planning on the map (2026-09-23):** tap the map, or "Route here" on a gem's detail sheet, to plan a route — a destination pin and dashed line appear, and gems/road reports along the corridor are highlighted in amber, using the real `gems_along_route`/`road_reports_along_route` PostGIS functions (`src/lib/routePlanning.js`). **It's a straight line, not real road routing** — there's still no Google Maps key, and fabricating turn-by-turn geometry would be dishonest. The route summary shows real straight-line distance and a road-quality score computed from real road reports along it. "Better routes" (Recommended/Fastest/Best Road as genuine alternatives) needs real street-network data and stays blocked on the Google Maps key — the `routes` edge function and scoring engine for that are already built and tested, just not reachable from any real road geometry yet.
+
+---
+
 ## MVP (Nairobi only, web app)
 
 ### Driver app

@@ -1,3 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+/* One token set for the whole platform — marketing site and app both use
+   this (see Landing.css and App.css). Figma-designed; see design-brief.md.
+   Dark is the default and matches what the app already looked like; light
+   is new. Toggled by adding/removing `light` on <html> — see
+   src/lib/theme.js and Profile.jsx's "Dark mode" setting. */
+:root {
+  --background: #050D0B;
+  --foreground: #E8F0ED;
+  --card: #0A1512;
+  --card-foreground: #E8F0ED;
+  --primary: #00C9A7;
+  --primary-foreground: #050D0B;
+  --secondary: #0F1E1A;
+  --secondary-foreground: #A0B8B0;
+  --muted: #0D1915;
+  --muted-foreground: #6B8880;
+  --accent: #00C9A7;
+  --accent-foreground: #050D0B;
+  --border: rgba(255, 255, 255, 0.08);
+  --ring: #00C9A7;
+  --radius: 14px;
+
+  --font-heading: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+
+  --amber: #f59e0b;
+  --blue: #60a5fa;
+  --purple: #a78bfa;
+  --red: #ef4444;
+}
+
+html.light {
+  --background: #F0F5F3;
+  --foreground: #0D1915;
+  --card: #FFFFFF;
+  --card-foreground: #0D1915;
+  --primary: #00A88C;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E4EDE9;
+  --secondary-foreground: #2A3D36;
+  --muted: #E8EFEC;
+  --muted-foreground: #5A7268;
+  --accent: #00A88C;
+  --accent-foreground: #FFFFFF;
+  --border: rgba(0, 0, 0, 0.10);
+  --ring: #00A88C;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -5,7 +56,64 @@
 }
 
 body {
-  font-family: 'Inter', sans-serif;
-  background: #050D0B;
-  color: #fff;
+  font-family: var(--font-body);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Shared card/chip/button primitives — used across marketing and app */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  border-radius: var(--radius);
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btn-primary:hover { opacity: 0.85; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.chip.active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }

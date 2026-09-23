@@ -9,7 +9,10 @@ supabase/
 ├── config.toml
 ├── migrations/
 │   ├── 20260920000000_init.sql             # schema, RLS policies, spatial functions, storage
-│   └── 20260920000100_review_and_scouts.sql # Scout applications, admin review, payouts
+│   ├── 20260920000100_review_and_scouts.sql # Scout applications, admin review, payouts
+│   ├── 20260922000000_guest_mode.sql        # guest mode (anonymous auth), blocks anon Scouts
+│   ├── 20260923000000_gems_near_point.sql   # "gems near me" — no route/Google Maps needed
+│   └── 20260923000100_road_reports_near_point.sql # "incidents near me" — same idea
 ├── seed.sql                                # development data (gems and road reports)
 └── functions/
     ├── _shared/                            # scoring, polyline, Google client (with tests)
@@ -39,10 +42,20 @@ To deploy to a hosted project:
 
 ```bash
 supabase link --project-ref <ref>
-supabase db push
+supabase db push --include-seed
 supabase secrets set GOOGLE_MAPS_API_KEY=<server key>
 supabase functions deploy routes
 ```
+
+A few things that only bite on a hosted project, not locally:
+
+- **If any migration was ever run by hand** (e.g. pasted into the dashboard's SQL editor before linking), `db push` will try to recreate those objects and fail on the first `CREATE TYPE`/`CREATE TABLE`. Reconcile the CLI's tracking table instead of re-running the SQL:
+  ```bash
+  supabase migration list                                    # compare Local vs Remote
+  supabase migration repair --status applied <version> ...   # mark ones already applied
+  ```
+- **`seed.sql` needs schema-qualified PostGIS names** (`extensions.st_makepoint(...)`, `::extensions.geography`, not the bare names). The connection `db push --include-seed` uses doesn't have `extensions` on its search_path, unlike local `db reset`. This is already how the checked-in `seed.sql` is written — worth knowing if you add more seed data.
+- **`supabase config push` pushes the *entire* `config.toml` auth section, not one setting.** There's no per-key push. Pushing it once to enable `enable_anonymous_sign_ins` also overwrote this project's `enable_confirmations`, MFA and rate-limit settings with the local-dev-convenient values from this file. `config.toml`'s auth settings are now kept at hardened (non-dev) values for exactly this reason — see the comments above `enable_confirmations` and `[auth.mfa.totp]` in the file. Don't loosen those back for local convenience; use Mailpit (`http://127.0.0.1:54324`) locally instead.
 
 ## Tables
 
@@ -70,6 +83,8 @@ Both take a WGS84 `LINESTRING` in lng/lat order, such as `LINESTRING(36.82 -1.29
 |---|---|---|
 | `gems_along_route(route_wkt, corridor_m := 500, categories := null)` | Suggestion engine, at trip start | Verified gems in the corridor, in driving order, with `route_fraction` (0 to 1) and distance from the route |
 | `road_reports_along_route(route_wkt, corridor_m := 50)` | Route intelligence engine | Verified, unexpired reports near the route, with severity, confidence and age |
+| `gems_near_point(lat, lng, radius_m := 3000, categories := null)` | Home dashboard ("Gems near you") | Verified gems in a plain radius, nearest first. Needs only the browser's Geolocation API, no route — usable before Google Maps is wired up |
+| `road_reports_near_point(lat, lng, radius_m := 5000)` | Home dashboard ("Incidents near you") | Same idea, for road reports |
 
 ```js
 const { data } = await supabase.rpc('gems_along_route', {
@@ -162,7 +177,9 @@ update public.profiles set role = 'admin' where username = 'your-username';
 
 ## Status and open items
 
-- **Not yet run.** Neither migration, the seed nor the edge function has been executed. Run `supabase db reset`, the Deno tests, and `supabase functions serve` before relying on any of it.
+- **Verified, both locally and on a hosted project.** Both migrations apply cleanly, the spatial functions and review workflow behave correctly, RLS blocks self-promotion, and all 17 Deno tests pass (see "Tests" above). The `routes` function is deployed and reachable.
+- **Email confirmation is currently off on the hosted project** (`enable_confirmations = false`), left that way after an accidental `config push` (see the warning above) and a follow-up dashboard fix that didn't fully take — the "Confirm email" toggle wasn't findable in this Supabase dashboard build under Auth Providers → Email. Anyone can sign up with an unverified email address until this is fixed. Low risk pre-launch (no real users yet), but **must be resolved before real users sign up** — try Authentication → Emails, or the Management API (`PATCH /v1/projects/{ref}/config/auth`) if the dashboard toggle can't be found.
+- **`GOOGLE_MAPS_API_KEY` isn't set yet** (the key is still pending creation), so the deployed `routes` function will 500 on any call until `supabase secrets set GOOGLE_MAPS_API_KEY=...` is run.
 - **Sign-up passes the username** as user metadata: `supabase.auth.signUp({ email, password, options: { data: { username } } })`. A duplicate username makes sign-up fail, and the app needs to show that error.
 - **Scout application** exists in the database, but the app screens for applying and for the admin review queue are not built.
 - **Scoring weights, half-lives and expiry** are first guesses and need tuning against real reports.

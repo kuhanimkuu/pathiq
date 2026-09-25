@@ -55,3 +55,18 @@ export async function fetchRecentDestinations(limit = 5) {
   if (error) throw error
   return data ?? []
 }
+
+// Past trips, newest first (History tab). Pass the oldest started_at you have
+// as `before` to load the next page.
+export async function fetchTripHistory({ limit = 30, before = null } = {}) {
+  const { data, error } = await supabase.rpc('my_trip_history', { p_limit: limit, p_before: before })
+  if (error) throw error
+  return data ?? []
+}
+
+// Removing a trip is the driver's call (RLS: delete own). Its gem events go
+// with it, and the IQ Score is recomputed on the next trip that ends.
+export async function deleteTrip(tripId) {
+  const { error } = await supabase.from('trips').delete().eq('id', tripId)
+  if (error) throw error
+}

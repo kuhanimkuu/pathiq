@@ -2,7 +2,7 @@
 
 Navigation for drivers in Kenya: better routes scored against community road reports, turn-by-turn directions, and alerts for Hidden Gems along the way. React + Vite web app (installable as an app on your phone), Supabase backend, Google Maps Platform.
 
-Where things stand is in [`progress.md`](progress.md). The product is described in [`description.md`](description.md) and [`features.md`](features.md), with the stack in [`architecture.md`](architecture.md) and the backend in [`supabase/README.md`](supabase/README.md).
+Where things stand is in [`progress.md`](progress.md). How the map is styled, and how to add map layers, is in [`docs/map-styling.md`](docs/map-styling.md). The product is described in [`description.md`](description.md) and [`features.md`](features.md), with the stack in [`architecture.md`](architecture.md) and the backend in [`supabase/README.md`](supabase/README.md).
 
 ## Run it
 
@@ -36,6 +36,7 @@ src/
                     placeSearch, googleMaps, alertPrefs, driveAssist, …
   context/          auth + user (profile, stats) providers
 public/             manifest, service worker (sw.js), icons
+docs/               map-styling.md
 supabase/
   migrations/       schema, RLS, spatial functions, trips/IQ score, rate limits
   functions/        `routes` edge function (+ Deno tests in _shared/)

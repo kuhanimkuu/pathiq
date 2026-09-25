@@ -53,7 +53,7 @@ This matters visually: **the bottom tab bar, Profile page content, and available
 **App (`/app/*`, mobile-first, bottom tab bar — the primary surface):**
 - `/app` — Home dashboard
 - `/app/map` — **live map (not designed yet — the main gap this brief exists to fill)**
-- `/app/routes` — route options
+- `/app/history`: past trips (route planning and comparison moved onto `/app/map`)
 - `/app/gems` — Hidden Gems browse/save/rate
 - `/app/profile` — account, settings, and role-conditional sections
 
@@ -78,7 +78,7 @@ This matters visually: **the bottom tab bar, Profile page content, and available
 ### App
 - **Home:** IQ score ring, two stat cards (trips this month, gems found), an "Active route" card (the trip in progress, with Resume navigation), "Incidents near you" and "Gems near you" (**both real**, from the driver's live location).
 - **Map:** placeholder only. This is the actual design gap.
-- **Routes:** 3 route option cards, same shape as the marketing version, plus a "Start navigation" button (**not wired up yet** — depends on the Google Maps key).
+- **History** (was Routes): past trips grouped by day, with status badges, Go again and Remove. Route options are compared in a bottom panel on the Map instead.
 - **Gems:** category filter chips (Attractions, Hotels, Food, Scenic, Fuel, Facilities), a list of gems each with a 5-star rate control and a save/bookmark toggle.
 - **Profile:** avatar + name + IQ score, stat cards, then role-conditional cards: guest-upgrade form, or a Become-a-Scout application form / pending-status badge, or Scout/Admin tool links — then settings toggles and sign out.
 - **Scout submission:** two tabs — a road report form (type, 1–5 severity picker, description, "use current location" button) and a new-gem form (name, category, description, location).

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Search, X, MapPin } from 'lucide-react'
+import { Search, X, MapPin, History, Bookmark } from 'lucide-react'
 import { newSearchSession, searchPlaces, resolvePlace } from '../lib/placeSearch'
 import { loadGoogleMaps } from '../lib/googleMaps'
 import { CATEGORY_ICON } from '../lib/icons'
@@ -10,11 +10,13 @@ import { CATEGORY_ICON } from '../lib/icons'
 const MIN_PLACE_QUERY = 3
 const DEBOUNCE_MS = 350
 
-// "Where to?" search: PathIQ gems (matched locally from `gems`) first, then
-// Google places. Used floating over the map and inline on the Routes tab.
-//   onPickGem(gem)                 a PathIQ gem was chosen
-//   onPickPlace({ lat, lng, name }) a Google place was chosen (already resolved)
-function DestinationSearch({ gems = [], near, onPickGem, onPickPlace, placeholder, variant = 'floating', autoFocus }) {
+// "Where to?" search over the map. Before anything is typed it offers one-tap
+// destinations: where you've navigated recently and the gems you've saved.
+// While typing: PathIQ gems (matched locally from `gems`) first, then Google places.
+//   onPickGem(gem)                  a nearby PathIQ gem was chosen (show it)
+//   onPickPlace({ lat, lng, name }) somewhere to route to: a Google place, a
+//                                   recent destination or a saved gem
+function DestinationSearch({ gems = [], recent = [], saved = [], near, onPickGem, onPickPlace, placeholder }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [results, setResults] = useState({ query: '', items: [] })
@@ -67,6 +69,11 @@ function DestinationSearch({ gems = [], near, onPickGem, onPickPlace, placeholde
     sessionRef.current = null // a Places session ends with a selection
   }
 
+  function pickQuick(place) {
+    reset()
+    onPickPlace?.({ lat: place.lat, lng: place.lng, name: place.name })
+  }
+
   function pickGem(gem) {
     reset()
     onPickGem?.(gem)
@@ -87,13 +94,12 @@ function DestinationSearch({ gems = [], near, onPickGem, onPickPlace, placeholde
   const places = results.query === trimmed ? results.items : []
 
   return (
-    <div className={`dest-search ${variant}`}>
+    <div className="dest-search floating">
       <div className="map-search-bar">
         <Search size={16} color="var(--muted-foreground)" />
         <input
           placeholder={placeholder}
           value={query}
-          autoFocus={autoFocus}
           onChange={(e) => {
             setQuery(e.target.value)
             setOpen(true)
@@ -109,6 +115,25 @@ function DestinationSearch({ gems = [], near, onPickGem, onPickPlace, placeholde
           </button>
         )}
       </div>
+
+      {open && !trimmed && !error && (recent.length > 0 || saved.length > 0) && (
+        <div className="map-search-results" onMouseDown={(e) => e.preventDefault()}>
+          {recent.length > 0 && <div className="map-search-heading"><History size={12} /> Recent</div>}
+          {recent.map((r) => (
+            <button key={`r:${r.lat},${r.lng},${r.name}`} className="map-search-result" onClick={() => pickQuick(r)}>
+              <span className="map-search-result-icon"><History size={15} /></span>
+              <span className="map-search-result-title">{r.name}</span>
+            </button>
+          ))}
+          {saved.length > 0 && <div className="map-search-heading"><Bookmark size={12} /> Saved gems</div>}
+          {saved.map((g) => (
+            <button key={`s:${g.id}`} className="map-search-result" onClick={() => pickQuick(g)}>
+              <span className="map-search-result-icon">{CATEGORY_ICON[g.category] ?? '📍'}</span>
+              <span className="map-search-result-title">{g.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {open && (trimmed || error) && (
         // mousedown is swallowed so picking a result doesn't blur the input

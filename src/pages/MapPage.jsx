@@ -2,14 +2,14 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { X, Bookmark, Star, Navigation2, Play, LocateOff, Gem, TriangleAlert, TrafficCone, MapPinPlus } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
-import { fetchNearbyGems, fetchSavedGemIds, saveGem, unsaveGem, confirmGem, getCurrentPosition } from '../lib/gems'
+import { fetchNearbyGems, fetchSavedGemIds, fetchSavedGems, saveGem, unsaveGem, confirmGem, getCurrentPosition } from '../lib/gems'
 import { fetchNearbyRoadReports, reportTypeLabel, severityBand } from '../lib/roadReports'
 import { planRoutes, fetchRouteCorridor, formatDuration, routeLabel } from '../lib/routePlanning'
 import { loadGoogleMaps, createPathiqMap, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
 import { buildNavModel, locate, progress, distanceM, spokenDistance, formatDistance, slicePath } from '../lib/navigation'
 import { CATEGORY_ICON, INCIDENT_ICON } from '../lib/icons'
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip'
-import { startTrip, endTrip, recordReroute, recordGemEvent } from '../lib/trips'
+import { startTrip, endTrip, recordReroute, recordGemEvent, fetchRecentDestinations } from '../lib/trips'
 import { loadAlertPrefs, detourMinutes, corridorForDetour } from '../lib/alertPrefs'
 import { holdWakeLock, notifyIfHidden } from '../lib/driveAssist'
 import NavigationHud from '../components/NavigationHud'
@@ -107,6 +107,9 @@ function MapPage() {
   // Tapping the map drops a pin (with Route here / Scout actions) rather than
   // planning straight away: a stray tap shouldn't spend a Google Routes call.
   const [dropped, setDropped] = useState(null) // { lat, lng }
+  // One-tap destinations in the search box (see DestinationSearch).
+  const [quickPicks, setQuickPicks] = useState({ recent: [], saved: [] })
+  const routePanelRef = useRef(null)
   // PathIQ's layers, toggled from the map. Traffic is Google's live layer.
   const [layers, setLayers] = useState({ gems: true, reports: true, traffic: false })
 
@@ -187,6 +190,27 @@ function MapPage() {
       cancelled = true
     }
   }, [session, fetchAround])
+
+  // Recent destinations and saved gems for the search box. Refreshed when a
+  // trip starts, so the place you just drove to is in Recent next time.
+  const loadQuickPicks = useCallback(async () => {
+    try {
+      const [recent, saved] = await Promise.all([fetchRecentDestinations(5), fetchSavedGems()])
+      setQuickPicks({ recent, saved })
+    } catch {
+      // a convenience only; search still works
+    }
+  }, [])
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    Promise.all([fetchRecentDestinations(5), fetchSavedGems()])
+      .then(([recent, saved]) => !cancelled && setQuickPicks({ recent, saved }))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [session])
 
   // Plans routes and shows them; resolves to the chosen option (or null).
   const planTo = useCallback(
@@ -276,6 +300,7 @@ function MapPage() {
         .then((tripId) => {
           setNav((n) => n && { ...n, tripId })
           saveActiveTrip(tripRecord({ ...next, tripId }, step))
+          loadQuickPicks()
         })
         .catch((err) => setNavError(`Trip not recorded: ${err.message}`))
     }
@@ -668,7 +693,9 @@ function MapPage() {
     if (!mapReady || !map || !api || !options || latest.current.nav) return
     const bounds = new api.LatLngBounds()
     options.forEach((o) => o.path.forEach((p) => bounds.extend(p)))
-    map.fitBounds(bounds, { top: 300, bottom: 40, left: 40, right: 40 })
+    // Keep the routes clear of the search bar above and the route panel below.
+    const panelHeight = routePanelRef.current?.offsetHeight ?? 280
+    map.fitBounds(bounds, { top: 130, bottom: panelHeight + 24, left: 40, right: 72 })
   }, [mapReady, options])
 
   function toggleCategory(cat) {
@@ -739,6 +766,8 @@ function MapPage() {
         <>
           <DestinationSearch
             gems={gems}
+            recent={quickPicks.recent}
+            saved={quickPicks.saved}
             near={position}
             placeholder="Where to? Search a place or gem, or tap the map…"
             onPickGem={handlePickGem}
@@ -784,59 +813,69 @@ function MapPage() {
             ))}
           </div>
 
-          {(routing || plan || routeError) && (
-            <div className="map-route-summary">
-              {routing && <span>Planning route…</span>}
-              {!routing && routeError && <span className="auth-error" style={{ margin: 0 }}>{routeError}</span>}
+          {(routing || plan || routeError) && !selectedGem && !selectedIncident && (
+            // Every alternative side by side — time, distance, PathIQ's scores and
+            // the road problems on it — then the selected route's problems and
+            // Start. This is the whole route-comparison feature; there's no
+            // separate page for it.
+            <div className="map-route-panel" ref={routePanelRef}>
+              {routing && <p className="list-row-sub" style={{ margin: 0 }}>Planning route…</p>}
+              {!routing && routeError && <p className="auth-error" style={{ margin: 0 }}>{routeError}</p>}
               {!routing && selectedRoute && (
                 <>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      {routeLabel(selectedRoute)} · to {plan.destinationName}
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, marginTop: 2 }}>
-                      {formatDuration(selectedRoute.durationS)} &middot; {(selectedRoute.distanceM / 1000).toFixed(1)} km &middot; road
-                      score {selectedRoute.scores.roadQuality}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted-foreground)', marginTop: 2 }}>
-                      {corridor.gems.length} gem{corridor.gems.length === 1 ? '' : 's'} along the way
-                      {selectedRoute.reportCount > 0
-                        ? ` · ${selectedRoute.reportCount} road report${selectedRoute.reportCount === 1 ? '' : 's'}, painted on the route`
-                        : ' · no current road reports on this route'}
-                    </div>
-                    {plan.options.length > 1 && (
-                      <div className="map-route-options">
-                        {plan.options.map((o) => (
-                          <button
-                            key={o.id}
-                            className={'chip' + (o.id === plan.selectedId ? ' active' : '')}
-                            onClick={() => setPlan((p) => ({ ...p, selectedId: o.id }))}
-                          >
-                            {routeLabel(o)} · {formatDuration(o.durationS)}
-                          </button>
-                        ))}
+                  <div className="route-panel-head">
+                    <div style={{ minWidth: 0 }}>
+                      <div className="route-panel-title">To {plan.destinationName}</div>
+                      <div className="route-panel-sub">
+                        {plan.options.length} route{plan.options.length === 1 ? '' : 's'} · {corridor.gems.length} gem
+                        {corridor.gems.length === 1 ? '' : 's'} along the selected one
                       </div>
-                    )}
-                    <div className="map-route-actions">
-                      <button
-                        className="map-route-start"
-                        onClick={() => startNavigation(selectedRoute, plan.destination, plan.destinationName)}
-                      >
-                        <Play size={13} fill="currentColor" /> Start
-                      </button>
-                      <Link
-                        className="map-route-compare"
-                        to={`/app/routes?${new URLSearchParams({
-                          to: `${plan.destination.lat.toFixed(5)},${plan.destination.lng.toFixed(5)}`,
-                          name: plan.destinationName,
-                        })}`}
-                      >
-                        Compare route scores →
-                      </Link>
                     </div>
+                    <button className="map-route-clear" onClick={handleClearRoute} aria-label="Clear route">
+                      <X size={16} />
+                    </button>
                   </div>
-                  <button className="map-route-clear" onClick={handleClearRoute} aria-label="Clear route">
-                    <X size={14} />
+
+                  <div className="route-option-list">
+                    {plan.options.map((o) => (
+                      <button
+                        key={o.id}
+                        className={'route-option-row' + (o.id === plan.selectedId ? ' selected' : '')}
+                        onClick={() => setPlan((p) => ({ ...p, selectedId: o.id }))}
+                        aria-pressed={o.id === plan.selectedId}
+                      >
+                        <span className="route-option-time">{formatDuration(o.durationS)}</span>
+                        <span className="route-option-body">
+                          <span className="route-option-label">
+                            {routeLabel(o)} · {(o.distanceM / 1000).toFixed(1)} km
+                          </span>
+                          <span className="route-option-scores">
+                            <span>Road {o.scores.roadQuality}</span>
+                            <span>Traffic {o.scores.traffic}</span>
+                            <span className={o.reportCount ? 'has-reports' : ''}>
+                              {o.reportCount ? `${o.reportCount} report${o.reportCount === 1 ? '' : 's'}` : 'No reports'}
+                            </span>
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedRoute.alerts?.length > 0 && (
+                    <div className="route-alerts">
+                      {selectedRoute.alerts.map((a, i) => (
+                        <div key={i} className={`route-alert route-alert-${severityBand(a.severity)}`}>
+                          {INCIDENT_ICON[a.type] ?? '⚠️'} {reportTypeLabel(a.type)} · severity {a.severity}/5, painted on the route
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    className="map-route-start route-panel-start"
+                    onClick={() => startNavigation(selectedRoute, plan.destination, plan.destinationName)}
+                  >
+                    <Play size={14} fill="currentColor" /> Start · {routeLabel(selectedRoute)}
                   </button>
                 </>
               )}
@@ -877,7 +916,7 @@ function MapPage() {
       )}
 
       {(error || navError) && (
-        <p className="auth-error map-floating-error" style={{ top: nav ? 124 : plan || routing ? 256 : 108 }}>
+        <p className="auth-error map-floating-error" style={{ top: nav ? 124 : 108 }}>
           {navError || error}
         </p>
       )}

@@ -30,6 +30,7 @@ export async function fetchRouteCorridor(path, { gemCorridorM = GEM_CORRIDOR_M }
 
 export function formatDuration(seconds) {
   const mins = Math.round(seconds / 60)
+  if (mins < 1) return 'under 1 min'
   if (mins < 60) return `${mins} min`
   return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`
 }

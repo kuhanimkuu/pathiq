@@ -117,7 +117,18 @@ try {
   ok('A sees own saved gem with coordinates', r.json?.length === 1 && typeof r.json[0].lat === 'number', JSON.stringify(r.json))
   r = await req(B.token, 'POST', '/rest/v1/rpc/my_saved_gems', {})
   ok("B doesn't see A's saved gems", Array.isArray(r.json) && r.json.length === 0, JSON.stringify(r.json))
-  for (const fn of ['my_recent_destinations', 'my_saved_gems']) {
+  // History tab
+  r = await req(A.token, 'POST', '/rest/v1/rpc/my_trip_history', { p_limit: 10 })
+  ok('A sees own trip in history, with gems alerted', r.json?.length === 1 && r.json[0].id === trip.id && r.json[0].gems_alerted === 1, JSON.stringify(r.json))
+  r = await req(B.token, 'POST', '/rest/v1/rpc/my_trip_history', { p_limit: 10 })
+  ok("B doesn't see A's history", Array.isArray(r.json) && r.json.every((t) => t.id !== trip.id), JSON.stringify(r.json).slice(0, 120))
+  // deleting a trip recomputes the IQ Score (A's only counted trip → no score)
+  r = await req(A.token, 'DELETE', `/rest/v1/trips?id=eq.${trip.id}`)
+  ok('A can remove own trip', r.status === 200 && r.json?.length === 1, `${r.status}`)
+  r = await req(A.token, 'GET', `/rest/v1/profiles?id=eq.${A.id}&select=iq_score`)
+  ok('removing a trip updates the IQ Score', r.json[0].iq_score === null, JSON.stringify(r.json))
+
+  for (const fn of ['my_recent_destinations', 'my_saved_gems', 'my_trip_history']) {
     r = await req(null, 'POST', `/rest/v1/rpc/${fn}`, {})
     ok(`anon cannot call ${fn}`, r.status >= 400, `${r.status}`)
   }

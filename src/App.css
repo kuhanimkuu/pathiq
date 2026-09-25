@@ -385,7 +385,7 @@
 
   /* Screens that should use the extra width rather than stay phone-narrow */
   .app-content > .gems-page,
-  .app-content > .routes-page,
+  .app-content > .history-page,
   .app-content > .home-page {
     max-width: 1040px;
   }
@@ -393,8 +393,6 @@
   .app-content > .map-page { max-width: none; }
 
   .stat-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-  .route-cards { flex-direction: row; align-items: stretch; }
-  .route-card { flex: 1; }
 }
 
 /* ══════════════════════════════════
@@ -588,86 +586,6 @@
   border-color: rgba(0, 201, 167, .3);
 }
 
-.route-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.route-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 18px;
-  cursor: pointer;
-}
-
-.route-card.selected {
-  border-color: var(--primary);
-}
-
-.route-card-tag {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted-foreground);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-}
-
-.route-card.selected .route-card-tag {
-  color: var(--primary);
-}
-
-.route-time {
-  font-family: var(--font-heading);
-  font-size: 26px;
-  font-weight: 700;
-}
-
-.route-dist {
-  font-size: 12.5px;
-  color: var(--muted-foreground);
-  margin-bottom: 14px;
-}
-
-.score-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.score-bar-label {
-  font-size: 11.5px;
-  color: var(--muted-foreground);
-  width: 78px;
-  flex-shrink: 0;
-}
-
-.score-bar-track {
-  flex: 1;
-  height: 6px;
-  background: var(--border);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.score-bar-fill {
-  height: 6px;
-  background: var(--primary);
-  border-radius: 3px;
-}
-
-.score-bar-val {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted-foreground);
-  width: 26px;
-  text-align: right;
-}
-
 .start-nav-btn {
   width: 100%;
   background: var(--primary);
@@ -841,8 +759,8 @@
   box-shadow: 0 0 0 8px rgba(0, 201, 167, 0.2);
 }
 
-/* Destination search (src/components/DestinationSearch.jsx): floating over
-   the map, or inline on the Routes tab. The results list hangs off the bar. */
+/* Destination search (src/components/DestinationSearch.jsx), floating over
+   the map. The results list hangs off the bar. */
 .dest-search { position: relative; }
 .dest-search.floating {
   position: absolute;
@@ -851,8 +769,17 @@
   right: 16px;
   z-index: 25;
 }
-.dest-search.inline { margin-bottom: 20px; z-index: 5; }
-.dest-search.inline .map-search-bar { background: var(--card); box-shadow: none; }
+.map-search-heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted-foreground);
+}
 
 .map-search-bar {
   display: flex;
@@ -1066,14 +993,6 @@ html.light .map-alert {
 }
 
 /* ── Route planning ── */
-.map-route-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-.map-route-options .chip { font-size: 11.5px; padding: 4px 10px; }
-
 .map-route-actions {
   display: flex;
   align-items: center;
@@ -1094,13 +1013,6 @@ html.light .map-alert {
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-}
-
-.map-route-compare {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--primary);
-  text-decoration: none;
 }
 
 .map-floating-error {
@@ -1314,27 +1226,6 @@ html.light .map-alert {
   box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.35);
 }
 
-.map-route-summary {
-  position: absolute;
-  top: 108px;
-  left: 16px;
-  right: 16px;
-  z-index: 15;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  background: rgba(10, 21, 18, 0.95);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 14px;
-  backdrop-filter: blur(12px);
-}
-
-html.light .map-route-summary {
-  background: rgba(255, 255, 255, 0.96);
-}
-
 .map-route-clear {
   background: none;
   border: none;
@@ -1517,32 +1408,6 @@ html.light .map-route-summary {
 }
 .app-content > .offline-banner { max-width: none; }
 
-/* ── Routes tab ── */
-.routes-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--muted-foreground);
-  font-family: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.routes-back:hover { color: var(--foreground); }
-
-.route-preview-map {
-  position: relative;
-  height: 280px;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  margin-bottom: 16px;
-  background: var(--card);
-}
-
 .route-alerts {
   display: flex;
   flex-direction: column;
@@ -1555,33 +1420,113 @@ html.light .map-route-summary {
 .route-alert-high { color: var(--red); }
 .route-alert-medium { color: var(--amber); }
 
-.section-title svg { vertical-align: -2px; margin-right: 4px; }
+/* ── Route panel (bottom sheet on the map) ── */
+.map-route-panel {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 12;
+  max-height: 55%;
+  overflow-y: auto;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+@media (min-width: 900px) {
+  .map-route-panel { right: auto; width: 420px; }
+}
 
-.quick-pick {
+.route-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.route-panel-title { font-family: var(--font-heading); font-size: 16px; font-weight: 700; }
+.route-panel-sub { font-size: 12px; color: var(--muted-foreground); margin-top: 2px; }
+
+.route-option-list { display: flex; flex-direction: column; gap: 6px; }
+.route-option-row {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 10px 4px;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  background: none;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--secondary);
   color: var(--foreground);
   font-family: inherit;
   text-align: left;
   cursor: pointer;
 }
-.quick-pick:last-child { border-bottom: none; }
-.quick-pick:hover .quick-pick-name { color: var(--primary); }
-.quick-pick-icon {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  border-radius: 9px;
-  background: var(--secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
+.route-option-row.selected { border-color: var(--primary); background: rgba(0, 201, 167, 0.08); }
+.route-option-time {
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 700;
+  min-width: 64px;
 }
-.quick-pick-name { font-size: 14px; font-weight: 500; }
+.route-option-row.selected .route-option-time { color: var(--primary); }
+.route-option-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.route-option-label { font-size: 12.5px; font-weight: 600; }
+.route-option-scores { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--muted-foreground); }
+.route-option-scores .has-reports { color: var(--amber); font-weight: 600; }
+
+.map-route-panel .route-alerts { margin-top: 10px; }
+.route-panel-start { width: 100%; justify-content: center; margin-top: 12px; padding: 10px 16px; font-size: 14px; }
+
+/* ── History tab ── */
+.history-active { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.history-active .home-route-btn { margin-top: 0; }
+.history-trip {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.history-trip:last-child { border-bottom: none; padding-bottom: 0; }
+.history-trip-main { min-width: 0; }
+.history-dest { font-size: 14.5px; font-weight: 600; }
+.history-meta { font-size: 12px; color: var(--muted-foreground); margin-top: 2px; }
+.history-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.history-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: var(--secondary);
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.history-badge.ok { color: var(--primary); background: rgba(0, 201, 167, 0.1); }
+.history-badge.gem { color: var(--amber); background: rgba(245, 166, 35, 0.1); }
+.history-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.history-btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.history-btn.danger { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.3); color: var(--red); }
+.history-btn.icon { width: 32px; padding: 0; justify-content: center; color: var(--muted-foreground); }
+@media (max-width: 520px) {
+  .history-trip { flex-direction: column; }
+}

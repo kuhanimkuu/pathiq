@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import TopBar from './components/TopBar'
 import TabBar from './components/TabBar'
 import MarketingLayout from './pages/marketing/MarketingLayout'
@@ -12,7 +12,7 @@ import PricingPage from './pages/marketing/PricingPage'
 import { PrivacyPage, TermsPage } from './pages/marketing/LegalPages'
 import Home from './pages/Home'
 import MapPage from './pages/MapPage'
-import RoutesPage from './pages/RoutesPage'
+import HistoryPage from './pages/HistoryPage'
 import Gems from './pages/Gems'
 import Profile from './pages/Profile'
 import Admin from './pages/Admin'
@@ -62,6 +62,14 @@ function useOnline() {
   return online
 }
 
+// Route planning moved onto the map; the old Routes tab is now History. Old
+// links keep working: with a destination they open it on the map, otherwise History.
+function RoutesRedirect() {
+  const { search } = useLocation()
+  const params = new URLSearchParams(search)
+  return <Navigate to={params.get('to') ? `/app/map${search}` : '/app/history'} replace />
+}
+
 function AppShell() {
   const online = useOnline()
   return (
@@ -76,7 +84,8 @@ function AppShell() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/map" element={<MapPage />} />
-          <Route path="/routes" element={<RoutesPage />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/routes" element={<RoutesRedirect />} />
           <Route path="/gems" element={<Gems />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/scout" element={<ScoutSubmit />} />

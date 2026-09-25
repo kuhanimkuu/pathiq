@@ -1,0 +1,189 @@
+# Map styling
+
+How the PathIQ map gets its look, and how to change it: colours, what Google shows, how our own markers and route lines are drawn, and how to add a new layer of PathIQ data.
+
+**The short version:** Google supplies the streets. Everything that makes the map PathIQ's is in our code:
+
+| What | Where |
+|---|---|
+| Base-map colours, and which Google features are hidden | `src/lib/mapStyle.js` |
+| Creating a map with that style | `createPathiqMap()` in `src/lib/googleMaps.js` |
+| Our markers (gems, road reports, you, destination) | `HtmlMarker` in `src/lib/googleMaps.js`, plus `.map-pin*` classes in `src/App.css` |
+| Route line colours, road-report stretches | constants at the top of `src/pages/MapPage.jsx` |
+| Layer switcher (Gems / Road reports / Traffic) | `layers` state in `src/pages/MapPage.jsx` |
+
+---
+
+## 1. How it fits together
+
+```
+┌───────────────────────────────────────────────┐
+│  PathIQ layers   gems · road reports · you ·   │  ← our data (Supabase), our markers
+│                  routes · painted hazards      │
+├───────────────────────────────────────────────┤
+│  Base map        streets, water, parks, labels │  ← Google tiles, coloured by mapStyle.js
+└───────────────────────────────────────────────┘
+```
+
+- The **base map** is Google's. Its colours and visibility are controlled by a list of **JSON style rules** in `src/lib/mapStyle.js`: one list for dark mode, one for light, plus a shared "declutter" list that hides Google's own places (shops, hospitals, bus stops…).
+- The **PathIQ layers** are drawn by us on top: HTML markers for points, `google.maps.Polyline` for lines. They use our CSS and our colours, so they always stand out against the muted base map.
+
+Every map in the app is created through `createPathiqMap(api, element, options)`, so a change to `mapStyle.js` applies everywhere.
+
+---
+
+## 2. Anatomy of a style rule
+
+Each rule picks some map features and says how to draw them:
+
+```js
+{ featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2C413C' }] }
+```
+
+| Part | Meaning | Examples |
+|---|---|---|
+| `featureType` | *What* on the map. Leave it out to mean everything. | `road`, `road.highway`, `road.arterial`, `road.local`, `water`, `poi`, `poi.park`, `poi.business`, `poi.medical`, `transit`, `transit.station`, `administrative.locality`, `landscape.man_made` |
+| `elementType` | *Which part* of it. Leave it out to mean all parts. | `geometry` (fill + stroke), `geometry.fill`, `geometry.stroke`, `labels`, `labels.text.fill`, `labels.text.stroke`, `labels.icon` |
+| `stylers` | *How* to draw it | `{ color: '#hex' }`, `{ visibility: 'off' \| 'on' \| 'simplified' }`, `{ lightness: -20 }`, `{ saturation: -100 }`, `{ weight: 2 }` |
+
+Rules are applied **in order, later ones win**. That's why the declutter list is added *after* the colour list: it can switch things off whatever colour they were given.
+
+Full reference: <https://developers.google.com/maps/documentation/javascript/style-reference>
+
+---
+
+## 3. Recipes
+
+### Change a colour
+
+Find the rule in the `DARK` (and/or `LIGHT`) list and edit the hex. The colours mirror the design tokens in `src/index.css`:
+
+| Map element | Dark | Light | Token it follows |
+|---|---|---|---|
+| Land / background | `#0A1512` | `#F4F7F6` | `--card` / `--background` |
+| Local roads | `#1A2724` | `#FFFFFF` | between `--card` and `--secondary` |
+| Highways | `#2C413C` | `#E3ECE9` | a step lighter than roads |
+| Parks | `#0E2A21` | `#DCEFE8` | a tint of `--primary` |
+| Water | `#06212B` | `#CFE3EA` | a blue close to `--background` |
+| Labels | `#7A8C88` | `#5F706C` | `--muted-foreground` |
+
+CSS variables can't reach inside the map canvas, so these are real hex values. **If you change a token in `index.css`, update the matching hex here too.**
+
+Keep the base map *quiet*: low contrast, low saturation. Our markers and route lines are what should stand out.
+
+### Show a kind of Google place again
+
+Everything under `poi` is hidden by the first `DECLUTTER` rule. To bring one category back, add a rule *after* it that turns that category on:
+
+```js
+// in DECLUTTER, after { featureType: 'poi', stylers: [{ visibility: 'off' }] }
+{ featureType: 'poi.medical', stylers: [{ visibility: 'on' }] },   // hospitals, clinics
+```
+
+Other categories: `poi.attraction`, `poi.business`, `poi.government`, `poi.place_of_worship`, `poi.school`, `poi.sports_complex`, `poi.park`.
+
+Think twice before showing `poi.business`. It's what made the map look like plain Google Maps, and it competes with Hidden Gems.
+
+### Hide or soften something else
+
+```js
+{ featureType: 'road.local', elementType: 'labels', stylers: [{ visibility: 'off' }] },    // no small-street names
+{ featureType: 'road.arterial', stylers: [{ visibility: 'simplified' }] },                  // thinner, fewer details
+{ featureType: 'administrative.neighborhood', stylers: [{ visibility: 'off' }] },           // no estate names
+```
+
+### Make one kind of road stand out
+
+Useful if PathIQ ever wants to highlight, say, highways for long-distance drivers:
+
+```js
+{ featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#3E5A53' }] },
+{ featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#00C9A7' }, { weight: 0.6 }] },
+```
+
+### Try a style quickly
+
+1. `npm run dev` and open `/app/map`.
+2. Edit `src/lib/mapStyle.js` and save. The page reloads with the new style.
+3. Check **both themes**: Profile → Dark mode, then go back to the map. The style is picked when the map is created, so switch theme, then reopen the map.
+4. Check a planned route: the route lines and the painted report stretches must still read clearly on top.
+
+Google's Styling Wizard (<https://mapstyle.withgoogle.com>) can generate rules visually. Paste the JSON it exports into `DARK` or `LIGHT`.
+
+---
+
+## 4. Our own markers and lines
+
+### Markers
+
+`HtmlMarker` (in `googleMaps.js`) puts **any DOM element** on the map. Pages build the element and style it with CSS:
+
+| Marker | CSS class | Looks like |
+|---|---|---|
+| Hidden Gem | `.map-pin` (+ inline border colour) | round pin with the category emoji, teal ring (amber when on the selected route) |
+| Road report | `.map-pin` (smaller) | round pin with the report emoji, ring in severity colour |
+| You | `.map-user-dot` | teal dot with a halo |
+| Destination / dropped pin | `.map-pin-destination` | teal teardrop |
+
+The marker puts the element's top-left corner on the point. Each class then uses `transform` to centre itself (or put its tip) on the point. **Keep that transform** if you restyle a marker, or it will sit off its location.
+
+The emoji per category and report type are in `src/lib/icons.js`.
+
+### Route lines
+
+At the top of `src/pages/MapPage.jsx`:
+
+```js
+const ROUTE_COLOR = '#00C9A7'      // selected route (= --primary)
+const ALT_ROUTE_COLOR = '#7A8C88'  // other alternatives (= --muted-foreground)
+const REPORT_STRETCH_M = 120       // how much road is painted either side of a report
+const SEVERITY_COLOR = { high: '#EF4444', medium: '#F59E0B', low: '#3B82F6' }  // = --red / --amber / --blue
+```
+
+The painted stretches come from the `hazards` list the `routes` edge function returns for each route. Only reports that still matter are included (see `isStillRelevant` in `supabase/functions/_shared/scoring.ts`), so an old accident isn't painted.
+
+---
+
+## 5. Adding a new layer of PathIQ data
+
+Gems and road reports both follow the same pattern. For a new kind of data, say fuel prices or flood zones:
+
+1. **Database:** a table with a `geography` column, RLS policies, and a "near point" function returning `lat`/`lng` (copy `gems_near_point` in `supabase/migrations/`). Add checks to `supabase/tests/security.test.mjs`.
+2. **Fetch:** a function in `src/lib/` that calls it (like `fetchNearbyGems`).
+3. **State:** load it in `MapPage` alongside gems and incidents (`fetchAround`).
+4. **Draw it:**
+   - Points: add them in the markers effect with `new api.HtmlMarker({ map, position, content, zIndex })`, using a new CSS class.
+   - Lines or areas: `new api.Polyline(...)` / `new api.Polygon(...)` in their own effect. Return a cleanup that calls `setMap(null)`.
+5. **Toggle:** add a key to the `layers` state and a button in `.map-layers`.
+6. **Details on tap:** reuse the bottom sheet (`selected` state) as gems and reports do.
+
+---
+
+## 6. When to switch to Cloud-based styling
+
+Google also lets you style a map in Cloud Console and attach it to a **Map ID**. We don't do that today, for two reasons:
+
+- It needs access to the Google Cloud project, which PathIQ doesn't manage yet.
+- A style in code is versioned in git, reviewed in pull requests, and changes with the app.
+
+**The catch:** JSON styles and a Map ID can't be used together. Some features only work on Map ID (vector) maps:
+
+- tilt and rotation, e.g. a **heading-up camera** during navigation;
+- Advanced Markers (we don't need them, because `HtmlMarker` does the job);
+- smoother zooming and some newer map features.
+
+If PathIQ wants those:
+
+1. In Cloud Console → Google Maps Platform → Map Styles, create a style and recreate the rules from `mapStyle.js`. The editor has the same feature and element names. Make one style for dark and one for light.
+2. Create a **JavaScript vector** Map ID and attach the style to it.
+3. In `createPathiqMap`, replace `styles` / `backgroundColor` with `mapId: '<your id>'` and `colorScheme: currentTheme() === 'light' ? 'LIGHT' : 'DARK'`.
+4. `HtmlMarker` keeps working unchanged.
+5. Keep `mapStyle.js` in the repo as the record of the intended look, or delete it once the Cloud style is the source of truth.
+
+---
+
+## 7. Rules to keep
+
+- **Don't hide Google's logo, the "Map data ©" line or the Terms link.** Google's terms require them to stay visible.
+- **One place for colours:** if a colour means something in the app (primary, severity), use the same hex on the map as the token in `index.css`.
+- **Quiet base, loud data:** if a style change makes streets or labels compete with gems, reports or routes, it's the wrong direction.

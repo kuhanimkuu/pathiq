@@ -1,10 +1,10 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Map, Navigation2, Gem, User } from 'lucide-react'
+import { Home, Map, History, Gem, User } from 'lucide-react'
 
 const tabs = [
   { to: '/app', label: 'Home', Icon: Home },
   { to: '/app/map', label: 'Map', Icon: Map },
-  { to: '/app/routes', label: 'Routes', Icon: Navigation2 },
+  { to: '/app/history', label: 'History', Icon: History },
   { to: '/app/gems', label: 'Gems', Icon: Gem },
   { to: '/app/profile', label: 'Profile', Icon: User },
 ]

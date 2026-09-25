@@ -35,10 +35,11 @@ What's left is mostly **decisions and accounts only David's team can set up** (s
 
 **Driver app (`/app/*`), no login wall.** A guest session starts silently (`RequireSession`).
 - **Map:** Google streets in **PathIQ's own style** (`src/lib/mapStyle.js`). Google's shop, hospital and bus-stop pins are hidden, so PathIQ's layers stand out. A layer switcher toggles Gems, Road reports and Google live traffic. Tapping the map drops a pin with "Route here", plus, for Scouts, "Report a road issue here" and "Add a gem here" (these open the Scout form with the spot filled in). Gem details with save/rate. Shows a notice when location is off.
-- **How to add a new kind of PathIQ data to the map:** a Supabase table (+ RLS) and a query, then a layer in `MapPage.jsx` drawn with `api.HtmlMarker` (points) or `api.Polyline` (lines), plus a toggle in the layer switcher. Gems and road reports both follow this pattern.
-- **Search:** Google Places (New) suggestions limited to Kenya plus matching PathIQ gems. Searches start at 3 characters.
+- **How to style the map or add a new kind of PathIQ data to it:** see [`docs/map-styling.md`](docs/map-styling.md).
+- **Search:** tapping the box shows **Recent** destinations and **Saved gems** for one tap. Typing searches Google Places (New) limited to Kenya, plus matching PathIQ gems. Places searches start at 3 characters.
 - **Routes:** the `routes` edge function returns Google alternatives scored against verified road reports, tagged Recommended / Fastest / Best Road. Live reports on each route (`hazards`) are **painted onto the route** in their severity colour. Reports that have faded (e.g. an accident older than about 20 h) are neither painted nor listed; see `isStillRelevant` in `scoring.ts`.
-- **Routes tab (`/app/routes`):** "Where to?" with search, **recent destinations** and **saved gems** as one-tap picks. Then a route map preview, score cards with the problems on each route, and Start navigation.
+- **Route planning lives on the map.** A bottom panel lists every alternative side by side (time, distance, road and traffic scores, number of reports), then the selected route's problems and Start.
+- **History tab (`/app/history`)** (was Routes): past trips grouped by day. Each shows destination, route type, distance, time taken, Arrived / Ended early / Too short to count, road score, reroutes and gems passed, with **Go again** (plans it on the map) and **Remove** (recomputes the IQ Score). `my_trip_history` RPC. Old `/app/routes` links redirect.
 - **Navigation:** turn-by-turn from Google's steps, GPS snapped to the route line (`src/lib/navigation.js`), voice with mute, reroute after 3 fixes more than 50 m off route, arrival within 40 m. The screen stays on (Wake Lock).
 - **Gem alerts:** "Hidden gem ahead" within 600 m, and "You just passed" with a Save button. Filtered by category and max detour (Profile settings). Once per gem per trip, voiced, and a system notification if the app is in the background and notifications are on.
 - **Trips:** recorded in `trips` (summary only, no GPS trail). A trigger recomputes `iq_score` when a trip ends: 50% road quality of the routes chosen, 30% trips completed, 20% staying on route, over the last 30 days. Home and Profile show real "Trips this month" and "Gems found" (`my_driver_stats`).
@@ -54,14 +55,13 @@ What's left is mostly **decisions and accounts only David's team can set up** (s
 - RLS on every table, with trips locked down so the IQ Score can't be gamed by editing rows.
 - Photo ownership checks.
 - Rate limits on routes (per user, per IP, and a global Google budget), trip starts, submissions and uploads.
-- `npm run test:security` passes 56/56 against the hosted project.
+- `npm run test:security` passes 61/61 against the hosted project.
 
 ## Not built
 
 - **Business/partner** and **developer** account tiers (see the `pathiq-tiered-user-access` memory). They're product direction, not designed yet.
 - Company pages linked from the footer (About, Blog, Careers, Press, Contact, Docs, Status, Changelog, Scout Portal/Earnings/Training/Community) are still `#` links.
 - Navigation polish: heading-up camera (needs a vector map ID), greying out the part of the route already driven, and warnings about road reports ahead.
-- Trip history screen. The data is recorded, but there's no list of past trips yet.
 - Verifying trips on the server: the route's road score at start and "arrived" are self-reported by the client.
 
 ## Test data note
@@ -78,4 +78,5 @@ End-to-end runs on 2026-09-25/26 created a few anonymous (guest) users with test
 | Design system, screens, the Figma prompt | `design-brief.md` |
 | Database schema, RLS, rate limits, spatial functions, deploy gotchas | `supabase/README.md` |
 | How to run, scripts, keys | `README.md` |
+| Map styling, markers, adding map layers | `docs/map-styling.md` |
 | Map-first / zero-auth / tiered-nav product direction | memory: `pathiq-tiered-user-access` |

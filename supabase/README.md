@@ -159,7 +159,7 @@ The scoring, polyline and Google-response tests are Deno tests (20 of them). Wit
 docker run --rm -v "$PWD/supabase/functions:/app" -w /app denoland/deno test _shared/
 ```
 
-`supabase/tests/security.test.mjs` (`npm run test:security`) checks the security rules against a live project, as real users: anon access, cross-user access, trip and IQ-score rules, Scout photo rules and rate limits. 56 checks. It creates throwaway guest users and deletes everything it made.
+`supabase/tests/security.test.mjs` (`npm run test:security`) checks the security rules against a live project, as real users: anon access, cross-user access, trip and IQ-score rules, Scout photo rules and rate limits. 61 checks. It creates throwaway guest users and deletes everything it made.
 
 ## Security
 
@@ -197,7 +197,7 @@ update public.profiles set role = 'admin' where username = 'your-username';
 
 ## Status and open items
 
-- **Verified on the hosted project (2026-09-26).** All migrations apply cleanly, the 20 Deno tests pass, `npm run test:security` passes 56/56, and the `routes` function is deployed and returning real Google routes.
+- **Verified on the hosted project (2026-09-26).** All migrations apply cleanly, the 20 Deno tests pass, `npm run test:security` passes 61/61, and the `routes` function is deployed and returning real Google routes.
 - **Email confirmation is currently off on the hosted project** (`enable_confirmations = false`), left that way after an accidental `config push` (see the warning above) and a follow-up dashboard fix that didn't fully take — the "Confirm email" toggle wasn't findable in this Supabase dashboard build under Auth Providers → Email. Anyone can sign up with an unverified email address until this is fixed. Low risk pre-launch (no real users yet), but **must be resolved before real users sign up** — try Authentication → Emails, or the Management API (`PATCH /v1/projects/{ref}/config/auth`) if the dashboard toggle can't be found.
 - **`GOOGLE_MAPS_API_KEY` is set** (2026-09-25) to a single demo key that has both the Routes and Maps JS APIs enabled. Split it into a server key and a browser key before launch (see `progress.md`).
 - **Turning on email confirmation needs custom SMTP first.** Supabase's built-in mailer only sends to the project's team members, so with confirmation on and no SMTP, real sign-ups would never get their email.

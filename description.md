@@ -84,8 +84,8 @@ Rules:
 | Screen | Purpose |
 |---|---|
 | Home | IQ score, stats, active route, nearby incidents, gems on usual routes |
-| Map | Live map with routes, conditions and gems |
-| Routes | Compare and choose route options, start navigation |
+| Map | Live map with conditions and gems; plan, compare and start routes |
+| History | Past trips: how they went, go again |
 | Gems | Browse and filter Hidden Gems |
 | Profile | Account, stats and settings |
 

@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { Star, Bookmark } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
 import { fetchGems, fetchSavedGemIds, saveGem, unsaveGem, confirmGem } from '../lib/gems'
+import { GemBadge, GemGlyph } from '../components/PlaceIcons'
+import { gemStyle } from '../lib/placeStyles'
 
 const categories = [
   { value: 'All', label: 'All' },
@@ -109,7 +111,7 @@ function Gems() {
             className={'filter-chip' + (category.value === activeCategory ? ' active' : '')}
             onClick={() => setActiveCategory(category.value)}
           >
-            {category.label}
+            {category.value !== 'All' && <GemGlyph category={category.value} />} {category.label}
           </button>
         ))}
       </div>
@@ -127,10 +129,11 @@ function Gems() {
 
         {filteredGems.map((gem) => (
           <div key={gem.id} className="list-row gem-row">
+            <GemBadge category={gem.category} size={40} />
             <div className="gem-row-main">
               <div className="list-row-title">{gem.name}</div>
               <div className="list-row-sub">
-                {categories.find((c) => c.value === gem.category)?.label ?? gem.category}
+                {gemStyle(gem.category).label}
                 {gem.rating_avg ? ` · ${gem.rating_avg}★` : ''} · {gem.confirmations_count} confirmations
               </div>
               {gem.description && <div className="list-row-sub">{gem.description}</div>}

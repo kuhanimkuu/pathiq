@@ -7,7 +7,9 @@ import { loadActiveTrip, resumeUrl } from '../lib/activeTrip'
 import { formatDuration } from '../lib/routePlanning'
 import { formatDistance } from '../lib/navigation'
 import { fetchNearbyGems, getCurrentPosition } from '../lib/gems'
-import { fetchNearbyRoadReports, severityBand, reportTypeLabel, timeAgo } from '../lib/roadReports'
+import { fetchNearbyRoadReports, reportTypeLabel, timeAgo } from '../lib/roadReports'
+import { GemBadge, ReportBadge } from '../components/PlaceIcons'
+import { gemStyle } from '../lib/placeStyles'
 
 function Home() {
   const { user, refresh } = useUser()
@@ -126,10 +128,12 @@ function Home() {
         {!loading && incidents.length === 0 && <p className="list-row-sub">No incidents reported nearby.</p>}
         {incidents.map((incident) => (
           <div key={incident.id} className="list-row">
-            <span className={`severity-dot severity-${severityBand(incident.severity)}`}></span>
+            <ReportBadge type={incident.type} severity={incident.severity} size={34} />
             <div>
               <div className="list-row-title">{reportTypeLabel(incident.type)}</div>
-              <div className="list-row-sub">{timeAgo(incident.created_at)}</div>
+              <div className="list-row-sub">
+                Severity {incident.severity}/5 · {(incident.distance_m / 1000).toFixed(1)} km away · {timeAgo(incident.created_at)}
+              </div>
             </div>
           </div>
         ))}
@@ -141,10 +145,11 @@ function Home() {
         {!loading && gems.length === 0 && <p className="list-row-sub">No gems found nearby yet.</p>}
         {gems.map((gem) => (
           <div key={gem.id} className="list-row">
+            <GemBadge category={gem.category} size={34} />
             <div>
               <div className="list-row-title">{gem.name}</div>
               <div className="list-row-sub">
-                {gem.category} · {(gem.distance_m / 1000).toFixed(1)} km away
+                {gemStyle(gem.category).label} · {(gem.distance_m / 1000).toFixed(1)} km away
               </div>
             </div>
           </div>

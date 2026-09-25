@@ -10,8 +10,8 @@ export async function fetchNearbyRoadReports(lat, lng, radiusM = 5000) {
   return data ?? []
 }
 
-// Maps a report's severity (1-5) to the severity-dot classes App.css already
-// defines (severity-high / -medium / -low).
+// Groups a report's severity (1-5) into high / medium / low, which picks its
+// colour (SEVERITY_COLOR in lib/placeStyles.js) on markers, badges and routes.
 export function severityBand(severity) {
   if (severity >= 4) return 'high'
   if (severity >= 3) return 'medium'

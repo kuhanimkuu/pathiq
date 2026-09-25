@@ -8,7 +8,7 @@ How the PathIQ map gets its look, and how to change it: colours, what Google sho
 |---|---|
 | Base-map colours, and which Google features are hidden | `src/lib/mapStyle.js` |
 | Creating a map with that style | `createPathiqMap()` in `src/lib/googleMaps.js` |
-| Our markers (gems, road reports, you, destination) | `HtmlMarker` in `src/lib/googleMaps.js`, plus `.map-pin*` classes in `src/App.css` |
+| Our markers (gems, road reports, you, destination) | colours + glyphs in `src/lib/placeStyles.js`, pin components in `src/components/PlaceIcons.jsx`, shapes in `src/App.css` (`.pin-gem`, `.pin-report`), placed by `HtmlMarker` in `src/lib/googleMaps.js` |
 | Route line colours, traffic shading, direction arrows, road-report dots, turn icons | constants at the top of `src/pages/MapPage.jsx`; turn icons in `src/components/ManeuverIcon.jsx` |
 | Layer switcher (Gems / Road reports / Traffic) | `layers` state in `src/pages/MapPage.jsx` |
 
@@ -114,20 +114,45 @@ Google's Styling Wizard (<https://mapstyle.withgoogle.com>) can generate rules v
 
 ## 4. Our own markers and lines
 
-### Markers
+### Markers and icons
 
-`HtmlMarker` (in `googleMaps.js`) puts **any DOM element** on the map. Pages build the element and style it with CSS:
+PathIQ's data has one icon set, used on the map **and** everywhere gems or reports are listed (search, filter chips, sheets, alerts, Home, Gems, Admin), so a category looks the same on every screen.
 
-| Marker | CSS class | Looks like |
+**Colours and glyphs:** `src/lib/placeStyles.js`
+
+| Gem category | Colour | Glyph (lucide) |
 |---|---|---|
-| Hidden Gem | `.map-pin` (+ inline border colour) | round pin with the category emoji, teal ring (amber when on the selected route) |
-| Road report | `.map-pin` (smaller) | round pin with the report emoji, ring in severity colour |
-| You | `.map-user-dot` | teal dot with a halo |
-| Destination / dropped pin | `.map-pin-destination` | teal teardrop |
+| Attractions | pink `#EC4899` | `Landmark` |
+| Hotels | blue `#3B82F6` | `BedDouble` |
+| Food | orange `#F97316` | `UtensilsCrossed` |
+| Scenic | green `#22C55E` | `Mountain` |
+| Fuel | yellow `#EAB308` | `Fuel` |
+| Facilities | purple `#8B5CF6` | `Toilet` |
 
-The marker puts the element's top-left corner on the point. Each class then uses `transform` to centre itself (or put its tip) on the point. **Keep that transform** if you restyle a marker, or it will sit off its location.
+| Report type | Glyph | Colour |
+|---|---|---|
+| Pothole | `ArrowDownToDot` | by severity: red (4–5), amber (3), blue (1–2) |
+| Flooding | `Waves` | 〃 |
+| Construction | `Construction` | 〃 |
+| Rough surface | `Activity` | 〃 |
+| Accident / incident | `Siren` | 〃 |
 
-The emoji per category and report type are in `src/lib/icons.js`.
+To add a category: add it to the database enum, then one line in `GEM_STYLE`. Pick a colour that isn't already used and that reads on both map themes. Avoid teal (that's the route and your location).
+
+**Components:** `src/components/PlaceIcons.jsx`
+
+| Component | Used for | Looks like |
+|---|---|---|
+| `GemPin` | gem on the map | teardrop in the category colour, white glyph, tip on the location. Amber glow when on the selected route, bookmark badge when saved, bigger when selected |
+| `ReportPin` | report on the map | diamond in the severity colour, white glyph, centred on the location |
+| `GemBadge` / `ReportBadge` | lists, sheets, alerts | tinted rounded tile with the coloured glyph |
+| `GemGlyph` | filter chips | the glyph alone, in the category colour |
+
+Gems are teardrops and reports are diamonds, so you can tell them apart even when colours are similar.
+
+**Other markers** (CSS only): `.map-user-dot` for you (teal dot with a halo), and `.map-pin-destination` for the destination or dropped pin (teal teardrop).
+
+**How they're placed:** `HtmlMarker` (in `googleMaps.js`) puts any DOM element on the map with its top-left corner on the point. Each shape then uses `transform` to put its tip (`.pin-gem`, `.map-pin-destination`) or centre (`.pin-report`, `.map-user-dot`) on the point. **Keep that transform** if you restyle a marker, or it will sit off its location. `MapPage` renders the React pins into these elements with `createRoot`.
 
 ### Route lines
 

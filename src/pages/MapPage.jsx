@@ -8,7 +8,8 @@ import { fetchNearbyRoadReports, reportTypeLabel, severityBand } from '../lib/ro
 import { planRoutes, fetchRouteCorridor, formatDuration, routeLabel } from '../lib/routePlanning'
 import { loadGoogleMaps, createPathiqMap, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
 import { buildNavModel, locate, progress, distanceM, spokenDistance, formatDistance, slicePath } from '../lib/navigation'
-import { CATEGORY_ICON, INCIDENT_ICON } from '../lib/icons'
+import { GemPin, ReportPin, GemBadge, ReportBadge, GemGlyph } from '../components/PlaceIcons'
+import { gemStyle } from '../lib/placeStyles'
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip'
 import { startTrip, endTrip, recordReroute, recordGemEvent, fetchRecentDestinations } from '../lib/trips'
 import { loadAlertPrefs, detourMinutes, corridorForDetour } from '../lib/alertPrefs'
@@ -91,16 +92,6 @@ function parseUrlPlan(params) {
     routeId: params.get('route'),
     nav: params.get('nav') === '1',
   }
-}
-
-function pinElement(className, style, content, label) {
-  const el = document.createElement('button')
-  el.type = 'button'
-  el.className = className
-  el.setAttribute('aria-label', label)
-  Object.assign(el.style, style)
-  el.textContent = content
-  return el
 }
 
 function readMuted() {
@@ -614,43 +605,48 @@ function MapPage() {
     const api = mapsApiRef.current
     if (!mapReady || !map || !api) return
     const markers = []
+    const roots = []
     const add = (latLng, content, zIndex, onClick) => {
-      const marker = new api.HtmlMarker({ map, position: latLng, content, zIndex })
+      markers.push(new api.HtmlMarker({ map, position: latLng, content, zIndex }))
       if (onClick) {
         content.addEventListener('click', (e) => {
           e.stopPropagation()
           onClick()
         })
       }
-      markers.push(marker)
+    }
+    // A focusable button hosting one of our React pins (components/PlaceIcons).
+    const host = (label, pin) => {
+      const el = document.createElement('button')
+      el.type = 'button'
+      el.className = 'marker-host'
+      el.setAttribute('aria-label', label)
+      const root = createRoot(el)
+      root.render(pin)
+      roots.push(root)
+      return el
     }
 
     for (const gem of visibleGems) {
       const onRoute = routeGemIds.has(gem.id)
-      const el = pinElement(
-        'map-pin' + (onRoute ? ' map-pin-on-route' : ''),
-        { background: 'var(--card)', border: `2px solid ${onRoute ? 'var(--amber)' : 'var(--primary)'}` },
-        CATEGORY_ICON[gem.category] ?? '📍',
+      const isSelected = selected?.type === 'gem' && selected.id === gem.id
+      const el = host(
         gem.name,
+        <GemPin category={gem.category} onRoute={onRoute} saved={savedIds.has(gem.id)} selected={isSelected} />,
       )
-      add({ lat: gem.lat, lng: gem.lng }, el, onRoute ? 20 : 10, () => setSelected({ type: 'gem', id: gem.id }))
+      add({ lat: gem.lat, lng: gem.lng }, el, isSelected ? 40 : onRoute ? 20 : 10, () =>
+        setSelected({ type: 'gem', id: gem.id }),
+      )
     }
 
     for (const incident of visibleIncidents) {
-      const band = severityBand(incident.severity)
       const onRoute = routeReportIds.has(incident.id)
-      const el = pinElement(
-        'map-pin' + (onRoute ? ' map-pin-on-route' : ''),
-        {
-          background: 'var(--card)',
-          border: `2px solid var(--${band === 'high' ? 'red' : band === 'medium' ? 'amber' : 'blue'})`,
-          width: '24px',
-          height: '24px',
-        },
-        INCIDENT_ICON[incident.type] ?? '⚠️',
-        reportTypeLabel(incident.type),
+      const isSelected = selected?.type === 'incident' && selected.id === incident.id
+      const el = host(
+        `${reportTypeLabel(incident.type)}, severity ${incident.severity}`,
+        <ReportPin type={incident.type} severity={incident.severity} onRoute={onRoute} selected={isSelected} />,
       )
-      add({ lat: incident.lat, lng: incident.lng }, el, onRoute ? 20 : 10, () =>
+      add({ lat: incident.lat, lng: incident.lng }, el, isSelected ? 40 : onRoute ? 21 : 11, () =>
         setSelected({ type: 'incident', id: incident.id }),
       )
     }
@@ -663,8 +659,11 @@ function MapPage() {
       add(pin, dest, 25)
     }
 
-    return () => markers.forEach((m) => m.setMap(null))
-  }, [mapReady, visibleGems, visibleIncidents, routeGemIds, routeReportIds, plan, dropped])
+    return () => {
+      markers.forEach((m) => m.setMap(null))
+      setTimeout(() => roots.forEach((r) => r.unmount())) // not during React's own commit
+    }
+  }, [mapReady, visibleGems, visibleIncidents, routeGemIds, routeReportIds, plan, dropped, selected, savedIds])
 
   // Google's live traffic, as an optional layer under ours.
   const trafficRef = useRef(null)
@@ -873,7 +872,7 @@ function MapPage() {
           {/* Gem alerts stack under the banner (and any "Then" strip). */}
           {gemAlert && (
             <div className={'nav-gem-alert' + (gemAlert.type === 'passed' ? ' passed' : '')} role="status" aria-live="polite">
-              <span className="nav-gem-alert-icon">{CATEGORY_ICON[gemAlert.gem.category] ?? '📍'}</span>
+              <GemBadge category={gemAlert.gem.category} size={40} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="nav-gem-alert-kicker">
                   {gemAlert.type === 'approaching' ? `Hidden gem ahead · ${formatDistance(gemAlert.aheadM)}` : 'You just passed'}
@@ -938,7 +937,7 @@ function MapPage() {
                 className={'chip' + (activeCategories.has(c.value) ? ' active' : '')}
                 onClick={() => toggleCategory(c.value)}
               >
-                {CATEGORY_ICON[c.value]} {c.label}
+                <GemGlyph category={c.value} /> {c.label}
               </button>
             ))}
           </div>
@@ -995,7 +994,8 @@ function MapPage() {
                     <div className="route-alerts">
                       {selectedRoute.alerts.map((a, i) => (
                         <div key={i} className={`route-alert route-alert-${severityBand(a.severity)}`}>
-                          {INCIDENT_ICON[a.type] ?? '⚠️'} {reportTypeLabel(a.type)} · severity {a.severity}/5, painted on the route
+                          <ReportBadge type={a.type} severity={a.severity} size={20} /> {reportTypeLabel(a.type)} · severity{' '}
+                          {a.severity}/5, painted on the route
                         </div>
                       ))}
                     </div>
@@ -1096,16 +1096,11 @@ function MapPage() {
           <div className="map-sheet">
             {selectedGem ? (
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: 12, background: 'var(--secondary)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 20,
-                }}>
-                  {CATEGORY_ICON[selectedGem.category] ?? '📍'}
-                </div>
+                <GemBadge category={selectedGem.category} size={44} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>{selectedGem.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 2 }}>
-                    {selectedGem.category} · {(selectedGem.distance_m / 1000).toFixed(1)} km away
+                    {gemStyle(selectedGem.category).label} · {(selectedGem.distance_m / 1000).toFixed(1)} km away
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
                     {[1, 2, 3, 4, 5].map((n) => (
@@ -1143,13 +1138,16 @@ function MapPage() {
                 </button>
               </div>
             ) : (
-              <div>
-                <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>
-                  {reportTypeLabel(selectedIncident.type)} — severity {selectedIncident.severity}/5
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 4 }}>
-                  {(selectedIncident.distance_m / 1000).toFixed(1)} km away
-                  {selectedIncident.description ? ` · ${selectedIncident.description}` : ''}
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <ReportBadge type={selectedIncident.type} severity={selectedIncident.severity} size={44} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>
+                    {reportTypeLabel(selectedIncident.type)} — severity {selectedIncident.severity}/5
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 4 }}>
+                    {(selectedIncident.distance_m / 1000).toFixed(1)} km away
+                    {selectedIncident.description ? ` · ${selectedIncident.description}` : ''}
+                  </div>
                 </div>
               </div>
             )}

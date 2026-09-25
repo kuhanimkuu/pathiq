@@ -550,17 +550,6 @@
   margin-top: 2px;
 }
 
-.severity-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.severity-high { background: var(--red); }
-.severity-medium { background: var(--amber); }
-.severity-low { background: var(--blue); }
-
 .filter-row {
   display: flex;
   gap: 8px;
@@ -732,20 +721,6 @@
   position: absolute;
   inset: 0;
   background: radial-gradient(ellipse at 60% 40%, var(--secondary) 0%, var(--background) 70%);
-}
-
-.map-pin {
-  position: absolute;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
 }
 
 .map-user-dot {
@@ -939,7 +914,7 @@ html.light .map-alert {
 }
 
 /* Markers on the Google map are HtmlMarkers (src/lib/googleMaps.js): the
-   element's top-left is put on the point, and .map-pin / .map-user-dot /
+   element's top-left is put on the point, and .pin-gem / .pin-report / .map-user-dot /
    .map-pin-destination translate themselves so their centre (or tip) sits on it. */
 
 /* ── Layer switcher ── */
@@ -1229,10 +1204,6 @@ html.light .map-alert {
 }
 .map-pin-destination svg { transform: rotate(45deg); }
 
-.map-pin-on-route {
-  box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.35);
-}
-
 .map-route-clear {
   background: none;
   border: none;
@@ -1271,18 +1242,6 @@ html.light .map-alert {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
 }
 .nav-gem-alert.passed { border-color: var(--border); }
-
-.nav-gem-alert-icon {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: 10px;
-  background: rgba(245, 166, 35, 0.14);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 19px;
-}
 
 .nav-gem-alert-kicker {
   font-size: 11px;
@@ -1665,3 +1624,109 @@ html.light .map-alert {
   font-weight: 600;
   cursor: pointer;
 }
+
+/* ══════════════════════════════════
+   PLACE ICONS (src/components/PlaceIcons.jsx)
+   One colour + glyph per gem category, one glyph per report type.
+   --c is set inline to the category / severity colour.
+   ══════════════════════════════════ */
+
+/* Tiles for lists, sheets and search results */
+.place-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 10px;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+}
+.place-badge.report { border-radius: 8px; }
+
+/* Gem pin: a teardrop whose tip is the location. The wrapper is placed with
+   its bottom-centre on the point; the head is a square with one sharp corner,
+   turned so that corner points down. */
+.pin-gem {
+  position: absolute;
+  width: 32px;
+  height: 40px;
+  transform: translate(-50%, -100%);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.pin-gem-head {
+  position: absolute;
+  left: 2px;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  transform-origin: 50% 50%;
+  background: var(--c);
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+}
+.pin-gem-head svg { transform: rotate(45deg); }
+.pin-gem.on-route .pin-gem-head { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.55), 0 2px 6px rgba(0, 0, 0, 0.45); }
+.pin-gem.selected { transform: translate(-50%, -100%) scale(1.25); transform-origin: 50% 100%; z-index: 40 !important; }
+
+.pin-saved {
+  position: absolute;
+  right: -3px;
+  top: -4px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  color: #00A88C;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* Road report: a diamond centred on the location */
+.pin-report {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.pin-report-head {
+  position: absolute;
+  inset: 2px;
+  border-radius: 5px;
+  transform: rotate(45deg);
+  background: var(--c);
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+}
+.pin-report-head svg { transform: rotate(-45deg); }
+.pin-report.on-route .pin-report-head { box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.35), 0 2px 6px rgba(0, 0, 0, 0.45); }
+.pin-report.selected { transform: translate(-50%, -50%) scale(1.3); z-index: 40 !important; }
+
+/* Marker hosts are plain buttons around the pin */
+.marker-host {
+  all: unset;
+  position: absolute;
+  cursor: pointer;
+}
+.marker-host:focus-visible .pin-gem-head,
+.marker-host:focus-visible .pin-report-head { outline: 2px solid var(--primary); outline-offset: 2px; }
+.review-card-title.with-badge { display: flex; align-items: center; gap: 10px; }
+.map-search-result .place-badge { flex-shrink: 0; }
+.route-alert .place-badge { vertical-align: middle; margin-right: 4px; }
+.nav-gem-alert .place-badge { border-radius: 10px; }
+.filter-chip svg, .chip svg { vertical-align: -2px; }

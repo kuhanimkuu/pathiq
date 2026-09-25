@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, X, MapPin, History, Bookmark } from 'lucide-react'
 import { newSearchSession, searchPlaces, resolvePlace } from '../lib/placeSearch'
 import { loadGoogleMaps } from '../lib/googleMaps'
-import { CATEGORY_ICON } from '../lib/icons'
+import { GemBadge } from './PlaceIcons'
 
 // Places Autocomplete is billed per request on the browser key, which can't
 // be rate-limited server-side — so search only from 3 characters, and only
@@ -128,7 +128,7 @@ function DestinationSearch({ gems = [], recent = [], saved = [], near, onPickGem
           {saved.length > 0 && <div className="map-search-heading"><Bookmark size={12} /> Saved gems</div>}
           {saved.map((g) => (
             <button key={`s:${g.id}`} className="map-search-result" onClick={() => pickQuick(g)}>
-              <span className="map-search-result-icon">{CATEGORY_ICON[g.category] ?? '📍'}</span>
+              <GemBadge category={g.category} size={30} />
               <span className="map-search-result-title">{g.name}</span>
             </button>
           ))}
@@ -141,7 +141,7 @@ function DestinationSearch({ gems = [], recent = [], saved = [], near, onPickGem
         <div className="map-search-results" onMouseDown={(e) => e.preventDefault()}>
           {gemMatches.map((gem) => (
             <button key={gem.id} className="map-search-result" onClick={() => pickGem(gem)}>
-              <span className="map-search-result-icon">{CATEGORY_ICON[gem.category] ?? '📍'}</span>
+              <GemBadge category={gem.category} size={30} />
               <span>
                 <span className="map-search-result-title">{gem.name}</span>
                 <span className="map-search-result-sub">

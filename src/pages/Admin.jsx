@@ -12,6 +12,8 @@ import {
   scoutPhotoUrl,
 } from '../lib/admin'
 import { reportTypeLabel, timeAgo } from '../lib/roadReports'
+import { GemBadge, ReportBadge } from '../components/PlaceIcons'
+import { gemStyle } from '../lib/placeStyles'
 
 function ReviewPhoto({ path }) {
   const [url, setUrl] = useState(null)
@@ -154,9 +156,11 @@ function Admin() {
           {gems.length === 0 && <p className="list-row-sub">No pending gems.</p>}
           {gems.map((gem) => (
             <div key={gem.id} className="review-card">
-              <div className="review-card-title">{gem.name}</div>
+              <div className="review-card-title with-badge">
+                <GemBadge category={gem.category} size={28} /> {gem.name}
+              </div>
               <div className="review-card-sub">
-                {gem.category} · submitted {timeAgo(gem.created_at)}
+                {gemStyle(gem.category).label} · submitted {timeAgo(gem.created_at)}
                 {gem.description ? ` · ${gem.description}` : ''}
               </div>
               {gem.photo_path && <ReviewPhoto path={gem.photo_path} />}
@@ -186,8 +190,9 @@ function Admin() {
           {reports.length === 0 && <p className="list-row-sub">No pending road reports.</p>}
           {reports.map((report) => (
             <div key={report.id} className="review-card">
-              <div className="review-card-title">
-                {reportTypeLabel(report.type)} · severity {report.severity}
+              <div className="review-card-title with-badge">
+                <ReportBadge type={report.type} severity={report.severity} size={28} /> {reportTypeLabel(report.type)} · severity{' '}
+                {report.severity}
               </div>
               <div className="review-card-sub">
                 submitted {timeAgo(report.created_at)}

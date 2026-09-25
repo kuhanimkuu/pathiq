@@ -153,21 +153,41 @@ The gem suggestion engine runs in the app rather than here. It uses `gems_along_
 
 ## Tests
 
-The scoring and polyline tests are Deno tests. Without Deno installed, run them in Docker:
+The scoring, polyline and Google-response tests are Deno tests (19 of them). Without Deno installed, run them with `npx deno@2 test _shared/` from `supabase/functions`, or in Docker:
 
 ```bash
 docker run --rm -v "$PWD/supabase/functions:/app" -w /app denoland/deno test _shared/
 ```
 
+`supabase/tests/security.test.mjs` (`npm run test:security`) checks the security rules against a live project, as real users: anon access, cross-user access, trip and IQ-score rules, Scout photo rules and rate limits. 50 checks. It creates throwaway guest users and deletes everything it made.
+
 ## Security
 
 Row-level security is on for every table.
 
-- **Drivers** read verified gems and reports, and manage only their own confirmations, saved gems and trips.
+- **Drivers** read verified gems and reports, and manage only their own confirmations and saved gems.
+- **Trips** feed the IQ Score, so they're locked down more tightly. A trip can only be *started* (inserted open). `started_at` and `ended_at` are stamped by the server. Only `ended_at`, `arrived` and `reroutes` can be updated, and reroutes can only go up. A closed trip is frozen. Gem events can only be added to your own trip while it's open. Still self-reported: the route's road score at start and whether you arrived. Verifying those would need server-side tracking.
 - **Scouts** can also submit `pending` gems and road reports, and upload photos to their own folder in the private `scout-photos` bucket.
 - **Admins** review, edit and delete gems and reports, and manage earnings.
-- **`role`, `plan` and `iq_score`** cannot be changed from the client. Column privileges only allow users to edit `username`, `display_name`, `notifications_on` and `mpesa_phone`.
-- **`route_cache`** has RLS on with no policies, so only the service role (edge functions) can use it.
+- **Scout photos** must live in the uploader's own folder. Uploads are limited by the storage policy, and a report or gem can only reference a photo in the submitter's folder (insert trigger). The bucket only accepts images up to 8 MB.
+- **`role`, `plan` and `iq_score`** cannot be changed from the client. `iq_score` is recomputed by a trigger when a trip ends (`compute_iq_score`). Column privileges only allow users to edit `username`, `display_name`, `notifications_on` and `mpesa_phone`.
+- **`route_cache`** and **`rate_limit_hits`** have RLS on with no policies, so only the service role (edge functions) can use them.
+- **Functions**: internal and trigger functions have `EXECUTE` revoked from clients. `consume_rate_limit` is service-role only.
+
+### Rate limits
+
+| What | Limit | Where |
+|---|---|---|
+| Anonymous (guest) sign-ups | 30 / hour / IP | Supabase Auth (`config.toml` `[auth.rate_limit]`) |
+| Sign-in / sign-up attempts | 30 / 5 min / IP | Supabase Auth |
+| `routes` edge function | 30 / 10 min per user, 60 / 10 min per IP | `consume_rate_limit`, returns 429 + `Retry-After` |
+| Google Routes calls, all users | 1500 / hour (env `ROUTES_GLOBAL_LIMIT_PER_HOUR`) | edge function, counted on cache misses only, returns 503 |
+| Trips started | 30 / hour / user | insert trigger, HTTP 429 |
+| Road reports / gems submitted | 30 / 20 per hour / user | insert triggers, HTTP 429 |
+| Scout photo uploads | 40 / hour / user, images only, 8 MB max | storage trigger + bucket limits |
+| Places autocomplete (browser key) | from 3 characters, 350 ms debounce, session tokens | client only. **Also set a daily quota on the browser key in Cloud Console.** |
+
+Limits are fixed-window counters in `rate_limit_hits` (see the `rate_limits` migration). Change a limit by editing its trigger argument or the constants at the top of `functions/routes/index.ts`.
 
 Make yourself an admin after signing up:
 
@@ -177,13 +197,13 @@ update public.profiles set role = 'admin' where username = 'your-username';
 
 ## Status and open items
 
-- **Verified, both locally and on a hosted project.** Both migrations apply cleanly, the spatial functions and review workflow behave correctly, RLS blocks self-promotion, and all 17 Deno tests pass (see "Tests" above). The `routes` function is deployed and reachable.
+- **Verified on the hosted project (2026-09-26).** All migrations apply cleanly, the 19 Deno tests pass, `npm run test:security` passes 50/50, and the `routes` function is deployed and returning real Google routes.
 - **Email confirmation is currently off on the hosted project** (`enable_confirmations = false`), left that way after an accidental `config push` (see the warning above) and a follow-up dashboard fix that didn't fully take — the "Confirm email" toggle wasn't findable in this Supabase dashboard build under Auth Providers → Email. Anyone can sign up with an unverified email address until this is fixed. Low risk pre-launch (no real users yet), but **must be resolved before real users sign up** — try Authentication → Emails, or the Management API (`PATCH /v1/projects/{ref}/config/auth`) if the dashboard toggle can't be found.
-- **`GOOGLE_MAPS_API_KEY` isn't set yet** (the key is still pending creation), so the deployed `routes` function will 500 on any call until `supabase secrets set GOOGLE_MAPS_API_KEY=...` is run.
+- **`GOOGLE_MAPS_API_KEY` is set** (2026-09-25) to a single demo key that has both the Routes and Maps JS APIs enabled. Split it into a server key and a browser key before launch (see `progress.md`).
+- **Turning on email confirmation needs custom SMTP first.** Supabase's built-in mailer only sends to the project's team members, so with confirmation on and no SMTP, real sign-ups would never get their email.
 - **Sign-up passes the username** as user metadata: `supabase.auth.signUp({ email, password, options: { data: { username } } })`. A duplicate username makes sign-up fail, and the app needs to show that error.
-- **Scout application** exists in the database, but the app screens for applying and for the admin review queue are not built.
 - **Scoring weights, half-lives and expiry** are first guesses and need tuning against real reports.
 - **A rejected Scout applicant** cannot reapply, because there is one application per user. An admin has to delete the row.
-- **No rate limiting** on the `routes` function beyond the Kenya bounds check and the cache.
+- **Guest sign-ups have no CAPTCHA.** Auth's per-IP limit and the global Google cap bound the cost, but for launch consider Cloudflare Turnstile (`[auth.captcha]`).
 - **M-Pesa payouts** are manual. Automating them (Daraja B2C) is a later edge function.
 - **Seed data** uses approximate coordinates, and some place names are placeholders.

@@ -5,13 +5,60 @@ import { useUser } from '../context/useUser'
 import { useAuth } from '../context/useAuth'
 import { fetchMyScoutApplication, applyAsScout, MPESA_PHONE_PATTERN } from '../lib/scouts'
 import { getInitialTheme, applyTheme } from '../lib/theme'
+import { ensureNotificationPermission, notificationsSupported } from '../lib/driveAssist'
+import { loadAlertPrefs, saveAlertPrefs, ALERT_CATEGORIES, DETOUR_CHOICES_MIN } from '../lib/alertPrefs'
+import { canInstall, isInstalled, isIos, onInstallChange, promptInstall } from '../lib/installPrompt'
+
+const CATEGORY_LABEL = {
+  attractions: 'Attractions', hotels: 'Hotels', food: 'Food', scenic: 'Scenic', fuel: 'Fuel', facilities: 'Facilities',
+}
 
 function Profile() {
-  const { user, updateIQScore } = useUser()
-  const { session, profile, isGuest, signOut, upgradeGuest } = useAuth()
+  const { user, refresh } = useUser()
+  const { session, profile, isGuest, signOut, upgradeGuest, setNotificationsOn } = useAuth()
   const navigate = useNavigate()
-  const [notificationsOn, setNotificationsOn] = useState(true)
   const [darkMode, setDarkMode] = useState(() => getInitialTheme() === 'dark')
+  const [notifyNote, setNotifyNote] = useState('')
+  const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
+  const [installable, setInstallable] = useState(canInstall)
+
+  // Stats and IQ Score change when a trip ends — refetch whenever Profile opens.
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
+  useEffect(() => onInstallChange(() => setInstallable(canInstall())), [])
+
+  // Saved on the profile (notifications_on). Turning it on also asks the
+  // browser for permission, which is what actually lets gem alerts reach you
+  // when PathIQ isn't on screen.
+  async function handleNotificationsChange(on) {
+    setNotifyNote('')
+    try {
+      if (on && notificationsSupported()) {
+        const granted = await ensureNotificationPermission()
+        if (!granted) setNotifyNote('Notifications are blocked in your browser settings, so alerts will only show in the app.')
+      }
+      await setNotificationsOn(on)
+    } catch (err) {
+      setNotifyNote(err.message)
+    }
+  }
+
+  function updateAlertPrefs(change) {
+    setAlertPrefs((prev) => {
+      const next = { ...prev, ...change }
+      saveAlertPrefs(next)
+      return next
+    })
+  }
+
+  function toggleAlertCategory(cat) {
+    const has = alertPrefs.categories.includes(cat)
+    updateAlertPrefs({
+      categories: has ? alertPrefs.categories.filter((c) => c !== cat) : [...alertPrefs.categories, cat],
+    })
+  }
 
   function handleDarkModeChange(checked) {
     setDarkMode(checked)
@@ -93,7 +140,7 @@ function Profile() {
         <div className="profile-avatar">{user.name[0]}</div>
         <div>
           <div className="profile-name">{user.name}</div>
-          <div className="profile-sub">IQ Score {user.iqScore} · Nairobi</div>
+          <div className="profile-sub">IQ Score {user.iqScore ?? '–'} · Nairobi</div>
           <span className={`role-badge role-${isGuest ? 'guest' : role}`}>
             {isGuest ? 'Guest' : role}
           </span>
@@ -188,27 +235,92 @@ function Profile() {
       )}
 
       <div className="section-card">
-        <div className="section-title">Settings</div>
-
-        <button
-            className="start-nav-btn"
-            style={{ marginBottom: 16 }}
-            onClick={() => updateIQScore(user.iqScore + 1)}
-            >
-            +1 IQ Score (test)
-        </button>
-
+        <div className="section-title">Gem alerts while driving</div>
         <div className="toggle-row">
-          <span>Push notifications</span>
+          <span>Tell me about Hidden Gems on my route</span>
           <label className="toggle-switch">
             <input
               type="checkbox"
-              checked={notificationsOn}
-              onChange={(e) => setNotificationsOn(e.target.checked)}
+              checked={alertPrefs.enabled}
+              onChange={(e) => updateAlertPrefs({ enabled: e.target.checked })}
+              aria-label="Gem alerts"
             />
             <span className="toggle-slider"></span>
           </label>
         </div>
+        {alertPrefs.enabled && (
+          <>
+            <div className="settings-label">Longest detour</div>
+            <div className="chip-row">
+              {DETOUR_CHOICES_MIN.map((min) => (
+                <button
+                  key={min}
+                  className={'chip' + (alertPrefs.maxDetourMin === min ? ' active' : '')}
+                  onClick={() => updateAlertPrefs({ maxDetourMin: min })}
+                >
+                  {min} min
+                </button>
+              ))}
+            </div>
+            <div className="settings-label">Categories</div>
+            <div className="chip-row">
+              {ALERT_CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  className={'chip' + (alertPrefs.categories.includes(cat) ? ' active' : '')}
+                  onClick={() => toggleAlertCategory(cat)}
+                >
+                  {CATEGORY_LABEL[cat]}
+                </button>
+              ))}
+            </div>
+            <p className="list-row-sub" style={{ marginTop: 10 }}>
+              One alert as you approach a gem and one after you pass it, spoken aloud. Never more than once per gem
+              per trip.
+            </p>
+          </>
+        )}
+      </div>
+
+      {!isInstalled() && (
+        <div className="section-card" id="install">
+          <div className="section-title">Install the app</div>
+          {installable ? (
+            <>
+              <p className="list-row-sub" style={{ marginBottom: 12 }}>
+                Add PathIQ to your home screen: it opens full-screen, like a normal app, and loads even on weak signal.
+              </p>
+              <button className="home-route-btn" onClick={promptInstall}>Install PathIQ</button>
+            </>
+          ) : isIos() ? (
+            <p className="list-row-sub">
+              In Safari, tap the Share button, then <strong>Add to Home Screen</strong>.
+            </p>
+          ) : (
+            <p className="list-row-sub">
+              Open PathIQ in Chrome on your phone and choose <strong>Install app</strong> (or Add to Home screen) from
+              the browser menu.
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="section-card">
+        <div className="section-title">Settings</div>
+
+        <div className="toggle-row">
+          <span>Notifications</span>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={profile?.notifications_on ?? true}
+              onChange={(e) => handleNotificationsChange(e.target.checked)}
+              aria-label="Notifications"
+            />
+            <span className="toggle-slider"></span>
+          </label>
+        </div>
+        {notifyNote && <p className="list-row-sub" style={{ marginTop: -4, marginBottom: 10 }}>{notifyNote}</p>}
 
         <div className="toggle-row">
           <span>Dark mode</span>
@@ -225,6 +337,9 @@ function Profile() {
         <button className="auth-guest-btn" style={{ marginTop: 16 }} onClick={handleSignOut}>
           Sign out
         </button>
+        <p className="list-row-sub" style={{ marginTop: 14, textAlign: 'center' }}>
+          <Link to="/privacy">Privacy</Link> · <Link to="/terms">Terms</Link>
+        </p>
       </div>
     </div>
   )

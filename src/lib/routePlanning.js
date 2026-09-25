@@ -1,55 +1,83 @@
 import { supabase } from './supabase'
-import { haversineDistanceM } from './geo'
 
-// Straight-line "planned route" between two points — not real road routing.
-// There's no Google Maps key yet (see architecture.md), so there's no real
-// street geometry to follow. This is honest about that: one straight line,
-// not fabricated alternatives. What IS real: the gems and road reports
-// returned along it, via the same PostGIS functions the (built, tested, not
-// yet wired-in) route-scoring edge function uses — see
-// supabase/migrations/20260920000000_init.sql.
+// Real driving routes: the `routes` edge function asks Google for alternatives
+// (server-side key), scores each against verified road reports, and tags them
+// Recommended / Fastest / Best Road — see supabase/functions/routes/index.ts.
+// The gem corridor isn't part of that response, so it's fetched here for
+// whichever route the driver is looking at, using the real road geometry.
 
 const GEM_CORRIDOR_M = 400
-const REPORT_CORRIDOR_M = 150
+const REPORT_CORRIDOR_M = 50 // same as the edge function, so counts agree
 
-function toWkt(origin, destination) {
-  return `LINESTRING(${origin.lng} ${origin.lat}, ${destination.lng} ${destination.lat})`
+export const ROUTE_TAG_LABEL = { recommended: 'Recommended', fastest: 'Fastest', best_road: 'Best Road' }
+
+export async function planRoutes(origin, destination) {
+  const { data, error } = await supabase.functions.invoke('routes', {
+    body: { origin: { lat: origin.lat, lng: origin.lng }, destination },
+  })
+  if (error) throw new Error(await edgeErrorMessage(error))
+  return data.options.map((o) => ({ ...o, path: decodePolyline(o.encodedPolyline) }))
 }
 
-export async function planRoute(origin, destination) {
-  const wkt = toWkt(origin, destination)
+export async function fetchRouteCorridor(path, { gemCorridorM = GEM_CORRIDOR_M } = {}) {
+  const wkt = toWkt(path)
   const [{ data: gems, error: gemsError }, { data: reports, error: reportsError }] = await Promise.all([
-    supabase.rpc('gems_along_route', { route_wkt: wkt, corridor_m: GEM_CORRIDOR_M }),
+    supabase.rpc('gems_along_route', { route_wkt: wkt, corridor_m: Math.max(GEM_CORRIDOR_M, gemCorridorM) }),
     supabase.rpc('road_reports_along_route', { route_wkt: wkt, corridor_m: REPORT_CORRIDOR_M }),
   ])
   if (gemsError) throw gemsError
   if (reportsError) throw reportsError
-
-  const distanceM = haversineDistanceM(origin.lat, origin.lng, destination.lat, destination.lng)
-
-  return {
-    origin,
-    destination,
-    distanceM,
-    gems: gems ?? [],
-    reports: reports ?? [],
-    roadQuality: roadQualityScore(reports ?? []),
-  }
+  return { gems: gems ?? [], reports: reports ?? [] }
 }
 
-// A lighter version of the penalty formula in
-// supabase/functions/_shared/scoring.ts (that one also needs traffic/time
-// data from Google, which isn't available here) — same idea: potholes and
-// surface reports hurt road quality, weighted by severity and how fresh the
-// report is. 100 = no known issues on this stretch.
-const BASE_PENALTY = { pothole: 6, surface: 8, construction: 10, flooding: 20, incident: 15 }
-const PENALTY_SCALE = 40
+export function formatDuration(seconds) {
+  const mins = Math.round(seconds / 60)
+  if (mins < 60) return `${mins} min`
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`
+}
 
-function roadQualityScore(reports) {
-  const total = reports.reduce((sum, r) => {
-    const severity = Math.min(5, Math.max(1, r.severity)) / 5
-    const confidence = r.confidence ?? 0.7
-    return sum + (BASE_PENALTY[r.type] ?? 8) * severity * confidence
-  }, 0)
-  return Math.round(100 * Math.exp(-total / PENALTY_SCALE))
+export function routeLabel(option) {
+  return option.tags.map((t) => ROUTE_TAG_LABEL[t] ?? t).join(' · ') || 'Alternative'
+}
+
+// The edge function returns { error } JSON with a useful message; supabase-js
+// hides it behind a generic "non-2xx" error unless we read the response.
+async function edgeErrorMessage(error) {
+  try {
+    const body = await error.context?.json()
+    if (body?.error) return body.error
+  } catch {
+    // not JSON — fall through
+  }
+  return error.message
+}
+
+// Google's encoded polyline format (precision 5) — same algorithm as
+// supabase/functions/_shared/polyline.ts. Returns [{ lat, lng }].
+function decodePolyline(encoded) {
+  const points = []
+  let index = 0
+  let lat = 0
+  let lng = 0
+  const nextDelta = () => {
+    let result = 0
+    let shift = 0
+    let byte
+    do {
+      byte = encoded.charCodeAt(index++) - 63
+      result |= (byte & 0x1f) << shift
+      shift += 5
+    } while (byte >= 0x20)
+    return result & 1 ? ~(result >> 1) : result >> 1
+  }
+  while (index < encoded.length) {
+    lat += nextDelta()
+    lng += nextDelta()
+    points.push({ lat: lat / 1e5, lng: lng / 1e5 })
+  }
+  return points
+}
+
+function toWkt(path) {
+  return `LINESTRING(${path.map((p) => `${p.lng} ${p.lat}`).join(', ')})`
 }

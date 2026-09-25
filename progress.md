@@ -1,64 +1,70 @@
 # PathIQ Navigators: progress
 
-A snapshot of where things stand, for picking this up again — on this machine or another. For the product vision and longer-term plan, see `description.md`, `features.md`, `architecture.md` and `design-brief.md`; this file is the "where are we right now" summary.
+A snapshot of where things stand, for picking this up again on this machine or another. For the product vision and longer-term plan, see `description.md`, `features.md`, `architecture.md` and `design-brief.md`. This file is the "where are we right now" summary.
 
-Last updated: 2026-09-23.
-
----
-
-## The one blocker
-
-**The Google Maps API key.** David is getting it now (Routes API + Maps JavaScript API, two separate keys — server key for the edge function, browser key restricted by referrer for the frontend; see the last exchange in this session for the exact Cloud Console steps). Once it exists:
-
-```bash
-supabase secrets set GOOGLE_MAPS_API_KEY=<server key>
-supabase functions deploy routes
-```
-and add `VITE_GOOGLE_MAPS_API_KEY=<browser key>` to the root `.env`.
-
-Everything downstream of that (real map tiles, real turn-by-turn routing, real route alternatives) is designed and partly built already, just not reachable without it.
+Last updated: 2026-09-26.
 
 ---
 
-## What's live right now
+## Status in one paragraph
 
-**Hosted Supabase project:** `nabzfpbpfmcjbbwsxiob` ("kuhanimkuu's Project"). Linked (`supabase link`), migrations applied, seeded with 11 gems and 3 road reports around Nairobi. Repo: `https://github.com/loisegakii/pathiq-navigators` (note: different account than the git user on this machine — see `architecture.md` history if that matters later).
+The MVP in `features.md` is built end to end against the hosted Supabase project:
+- **Driving:** a real Google map, place search, scored route alternatives, and turn-by-turn navigation with voice, rerouting and arrival.
+- **Hidden Gems:** alerts while driving ("ahead" and "just passed", with filters).
+- **Trips:** trip recording feeding real "Trips this month", "Gems found" and IQ Score numbers.
+- **Scouts:** reports and gems with photos, plus admin review.
+- **Platform:** installs as a phone app and opens offline, Privacy and Terms pages, locked-down RLS, and rate limits.
 
-**Backend** (`supabase/`):
-- Schema, RLS, and 5 migrations (init → review/Scouts → guest mode → two "near point" spatial functions). All verified locally and against the hosted project.
-- Guest mode via Supabase anonymous auth — a real `authenticated` session, so existing RLS just works for guests with no extra rules.
-- Admin review workflow (`review_gem`, `review_road_report`, `review_scout_application`, `mark_earning_paid`) — creates Scout earnings automatically on approval.
-- `routes` edge function: built, unit-tested (17 passing tests), deployed — but every call 500s until the Google key exists.
-- Two spatial-query families: `*_along_route` (for a route line — built for the suggestion engine, now actually used by route planning) and `*_near_point` (for "near me" on Home, independent of any route).
+What's left is mostly **decisions and accounts only David's team can set up** (see "Before launch"), plus the business/developer tiers, which aren't designed yet.
 
-**Frontend, all verified live against the real hosted project, not mocked:**
-- **Auth:** sign up, sign in, guest mode, guest→real-account upgrade, sign out. Guest sessions start **silently** — no login wall to view anything (`RequireSession` in `src/App.jsx`), per David's "should work like Google Maps" direction.
-- **Multipage marketing site:** `/`, `/map`, `/hidden-gems`, `/scout-program`, `/developers`, `/pricing`, sharing one layout/nav. Road Conditions and Route Intelligence were folded into `/map` as sections rather than their own pages/nav items (old URLs redirect). Nav is deliberately just **Map, Hidden Gems, Scout Program** — see the `pathiq-tiered-user-access` memory for why.
-- **One design system, two themes.** Dark (default, matches the original look) and light, both real — the Settings "Dark mode" toggle used to be a dead stub, now works and persists. Figma-designed; see `design-brief.md`. The app shell is a responsive sidebar at ≥900px, bottom tabs below that.
-- **Home dashboard:** real "Incidents near you" / "Gems near you" via geolocation. "Active route" is still a mock card (see Next steps).
-- **Gems page:** real browse/filter/save/5-star-rate against the `gems` table.
-- **Map (`/app/map`):** the actual live map screen. Not a real street map yet (no Google key) — it's an honest radar view: pins placed by real bearing/distance from the driver, not fabricated street geometry. Search-by-name, category filters, tap-a-pin for details with working save/rate.
-- **Route planning, on the map:** tap the map, or "Route here" on a gem, to plan a route. Draws a straight-line path (clearly labelled as a preview, not real routing), and highlights real gems/road-reports along the corridor in amber, with a real distance and a road-quality score computed from real reports. Deliberately does **not** fake multiple route alternatives — that needs real road-network data.
-- **Scout tools (`/app/scout`):** submit road reports and new gems (Scouts/admins only).
-- **Admin console (`/app/admin`):** approve/reject pending gems, reports, Scout applications; mark earnings paid (admins only).
-- **Profile:** role-conditional — guest upgrade form, Become-a-Scout application, or Scout/Admin tool links, depending on who's looking.
+## Before launch (needs a person, not code)
 
-**Not built / explicitly still mock:**
-- Real map tiles and real turn-by-turn routing (blocked on the Google key, above).
-- Route alternatives (Recommended/Fastest/Best Road as genuinely different paths) — the `routes` edge function and scoring engine exist and are tested, just have no real street geometry to score yet.
-- "Active route" card on Home, trip tracking, the IQ Score algorithm.
-- The **business/partner account tier** (people listing hotels etc.) and the **developer account tier** (API keys) — both are real product direction (see `pathiq-tiered-user-access` memory), neither is designed in detail or built.
-- A mobile menu for the marketing nav (links just disappear under 980px — pre-existing gap, never fixed).
-- Email confirmation is currently **off** on the hosted project (an artifact of an accidental full `config push` earlier this session) — fine with no real users yet, but needs revisiting before launch. See `supabase/README.md`'s status section.
+1. **Google key.** The single demo key (Routes + Maps JS + Places) is in `.env`, `supabase/functions/.env` and the hosted secrets. It's visible in the browser bundle. Whoever owns the Cloud account should:
+   - create a **server key** (Routes API only) for `supabase secrets set GOOGLE_MAPS_API_KEY=…`;
+   - create a **browser key** (Maps JavaScript + Places only, restricted to the site's domains) for `VITE_GOOGLE_MAPS_API_KEY`;
+   - set **daily quotas and a budget alert**;
+   - then delete the demo key, which has also been pasted into a chat.
+2. **Email.** Email confirmation is off on the hosted project. Turning it on needs **custom SMTP** first (Supabase's built-in mailer only sends to team members). Details are in `supabase/README.md`.
+3. **Legal.** `/privacy` and `/terms` are a plain-language first draft that matches what the code does. They need a lawyer's review (Kenya Data Protection Act 2019) and a contact address (`CONTACT` in `src/pages/marketing/LegalPages.jsx`).
+4. **Seed data.** 11 gems and 3 road reports. `features.md` wants 50–100 verified gems, which means real places checked by real people, the Scout workflow's job. Seed coordinates are approximate.
+5. **Optional hardening.** Add a CAPTCHA (Cloudflare Turnstile) on guest sign-up, and set a custom map ID for a branded map style.
 
----
+## What's live
 
-## Immediate next steps, once the Google key exists
+**Hosted Supabase project** `nabzfpbpfmcjbbwsxiob`, linked. All migrations applied. `routes` edge function deployed with the Google key. Repo: `https://github.com/loisegakii/pathiq-navigators` (a different account from the git user on this machine).
 
-1. `supabase secrets set` + deploy `routes` (above).
-2. Wire the Maps JavaScript API into `MapPage.jsx`, replacing the radar canvas with a real map — the chrome (search, filters, pin sheet, route summary) is already built and should mostly carry over.
-3. Call the `routes` edge function from `RoutesPage.jsx` for real route alternatives, replacing its mock data.
-4. Revisit route planning on the map to use real road geometry instead of the straight-line preview.
+**Driver app (`/app/*`), no login wall.** A guest session starts silently (`RequireSession`).
+- **Map:** real Google map (dark or light), gems and road-report markers, category filters, gem details with save/rate. Shows a notice when location is off.
+- **Search:** Google Places (New) suggestions limited to Kenya plus matching PathIQ gems. Searches start at 3 characters.
+- **Routes:** the `routes` edge function returns Google alternatives scored against verified road reports, tagged Recommended / Fastest / Best Road. They're compared on the map and on `/app/routes`.
+- **Navigation:** turn-by-turn from Google's steps, GPS snapped to the route line (`src/lib/navigation.js`), voice with mute, reroute after 3 fixes more than 50 m off route, arrival within 40 m. The screen stays on (Wake Lock).
+- **Gem alerts:** "Hidden gem ahead" within 600 m, and "You just passed" with a Save button. Filtered by category and max detour (Profile settings). Once per gem per trip, voiced, and a system notification if the app is in the background and notifications are on.
+- **Trips:** recorded in `trips` (summary only, no GPS trail). A trigger recomputes `iq_score` when a trip ends: 50% road quality of the routes chosen, 30% trips completed, 20% staying on route, over the last 30 days. Home and Profile show real "Trips this month" and "Gems found" (`my_driver_stats`).
+- **Home:** IQ Score, stats, Active route card (resume navigation), incidents and gems near you.
+- **Profile:** guest upgrade, Become a Scout, notifications toggle (saved on the profile, asks the browser for permission), gem-alert settings, Install app, dark mode.
+- **Scouts** (`/app/scout`): road reports and gems with an optional photo (shrunk on the phone, private bucket). **Admins** (`/app/admin`) review them with a photo preview.
+
+**Installable app:** manifest, icons, and a service worker that caches the app shell so the app opens with no signal. Verified: Chrome reports it installable, and it opens offline.
+
+**Marketing site:** `/`, `/map`, `/hidden-gems`, `/scout-program`, `/developers`, `/pricing`, `/privacy`, `/terms`. Mobile menu below 980px.
+
+**Security** (`supabase/README.md` → Security):
+- RLS on every table, with trips locked down so the IQ Score can't be gamed by editing rows.
+- Photo ownership checks.
+- Rate limits on routes (per user, per IP, and a global Google budget), trip starts, submissions and uploads.
+- `npm run test:security` passes 50/50 against the hosted project.
+
+## Not built
+
+- **Business/partner** and **developer** account tiers (see the `pathiq-tiered-user-access` memory). They're product direction, not designed yet.
+- Company pages linked from the footer (About, Blog, Careers, Press, Contact, Docs, Status, Changelog, Scout Portal/Earnings/Training/Community) are still `#` links.
+- Navigation polish: heading-up camera (needs a vector map ID), greying out the part of the route already driven, and warnings about road reports ahead.
+- Trip history screen. The data is recorded, but there's no list of past trips yet.
+- Verifying trips on the server: the route's road score at start and "arrived" are self-reported by the client.
+
+## Test data note
+
+End-to-end runs on 2026-09-25/26 created a few anonymous (guest) users with test trips to "Sarit Centre" on the hosted project. The security and photo tests clean up after themselves. The browser drive tests' guests don't, and they're harmless. There are no real users yet.
 
 ## Where to look for more detail
 
@@ -68,5 +74,6 @@ Everything downstream of that (real map tiles, real turn-by-turn routing, real r
 | MVP scope, what's P0/P1/P2, build status | `features.md` |
 | Stack decisions, the two engines | `architecture.md` |
 | Design system, screens, the Figma prompt | `design-brief.md` |
-| Database schema, RLS, spatial functions, deploy gotchas | `supabase/README.md` |
+| Database schema, RLS, rate limits, spatial functions, deploy gotchas | `supabase/README.md` |
+| How to run, scripts, keys | `README.md` |
 | Map-first / zero-auth / tiered-nav product direction | memory: `pathiq-tiered-user-access` |

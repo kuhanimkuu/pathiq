@@ -10,4 +10,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Network failures surface as a bare "TypeError: Failed to fetch", which pages
+// would otherwise show verbatim. postgrest-js formats them as "<name>: <message>",
+// so name and message are chosen to read as one sentence.
+function fetchWithFriendlyErrors(...args) {
+  return fetch(...args).catch((err) => {
+    if (err?.name === 'AbortError') throw err
+    const friendly = new TypeError('check your connection and try again.')
+    friendly.name = "Can't reach PathIQ"
+    throw friendly
+  })
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  global: { fetch: fetchWithFriendlyErrors },
+})

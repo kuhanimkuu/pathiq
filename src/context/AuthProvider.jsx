@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { AuthContext } from './auth-context'
 
+const PROFILE_WAIT_MS = 1500
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -22,7 +24,12 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(({ data }) => {
       if (cancelled) return
       setSession(data.session)
-      loadProfile(data.session?.user?.id).finally(() => !cancelled && setLoading(false))
+      // On weak or no signal the profile request retries for several seconds
+      // before failing (and navigator.onLine often still says true). Wait for
+      // it briefly, then show the app anyway; the profile fills in when it lands.
+      const profileLoaded = loadProfile(data.session?.user?.id)
+      const patience = new Promise((resolve) => setTimeout(resolve, PROFILE_WAIT_MS))
+      Promise.race([profileLoaded, patience]).finally(() => !cancelled && setLoading(false))
     })
 
     const {
@@ -73,6 +80,16 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut()
   }
 
+  // Re-reads the profile, e.g. after a trip ends and the server has
+  // recomputed iq_score.
+  const refreshProfile = useCallback(() => loadProfile(session?.user?.id), [loadProfile, session])
+
+  async function setNotificationsOn(on) {
+    const { error } = await supabase.from('profiles').update({ notifications_on: on }).eq('id', session.user.id)
+    if (error) throw error
+    await loadProfile(session.user.id)
+  }
+
   const value = {
     session,
     user: session?.user ?? null,
@@ -84,6 +101,8 @@ export function AuthProvider({ children }) {
     signOut,
     continueAsGuest,
     upgradeGuest,
+    refreshProfile,
+    setNotificationsOn,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

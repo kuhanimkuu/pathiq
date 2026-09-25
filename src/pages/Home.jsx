@@ -3,12 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import StatCard from '../components/StatCard'
 import { useUser } from '../context/useUser'
 import { useAuth } from '../context/useAuth'
-import { activeRoute } from '../data/mockData'
+import { loadActiveTrip, resumeUrl } from '../lib/activeTrip'
+import { formatDuration } from '../lib/routePlanning'
+import { formatDistance } from '../lib/navigation'
 import { fetchNearbyGems, getCurrentPosition } from '../lib/gems'
 import { fetchNearbyRoadReports, severityBand, reportTypeLabel, timeAgo } from '../lib/roadReports'
 
 function Home() {
-  const { user } = useUser()
+  const { user, refresh } = useUser()
   const { session } = useAuth()
   const navigate = useNavigate()
   const [gems, setGems] = useState([])
@@ -16,6 +18,12 @@ function Home() {
   const [loading, setLoading] = useState(true)
   const [usingFallbackLocation, setUsingFallbackLocation] = useState(false)
   const [error, setError] = useState('')
+  const [trip] = useState(loadActiveTrip)
+
+  // Stats and IQ Score change when a trip ends — refetch whenever Home opens.
+  useEffect(() => {
+    refresh()
+  }, [refresh])
 
   useEffect(() => {
     if (!session) return
@@ -61,11 +69,15 @@ function Home() {
 
       <div className="iq-score-card">
         <div className="iq-ring">
-          <span className="iq-number">{user.iqScore}</span>
+          <span className="iq-number">{user.iqScore ?? '–'}</span>
         </div>
         <div>
           <div className="iq-label">Your IQ Score</div>
-          <div className="iq-sub">Based on your last 30 days of driving</div>
+          <div className="iq-sub">
+            {user.iqScore == null
+              ? 'Finish a trip with navigation to get your score.'
+              : 'Last 30 days: road quality of the routes you chose, trips completed, and staying on route.'}
+          </div>
         </div>
       </div>
 
@@ -76,11 +88,29 @@ function Home() {
 
       <div className="section-card">
         <div className="section-title">Active route</div>
-        <div className="route-line">
-          <strong>{activeRoute.destination}</strong>
-          <span>{activeRoute.eta} · {activeRoute.distance}</span>
-        </div>
-        <div className="route-status">{activeRoute.status}</div>
+        {trip ? (
+          <>
+            <div className="route-line">
+              <strong>{trip.destinationName}</strong>
+              <span>
+                {formatDuration(trip.remainingS)} · {formatDistance(trip.remainingM)} left
+              </span>
+            </div>
+            <div className="route-status">
+              {trip.routeLabel} · road score {trip.roadQuality}
+            </div>
+            <button className="home-route-btn" onClick={() => navigate(resumeUrl(trip))}>
+              Resume navigation
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="list-row-sub">No trip in progress.</p>
+            <button className="home-route-btn" onClick={() => navigate('/app/map')}>
+              Plan a route
+            </button>
+          </>
+        )}
       </div>
 
       {error && <p className="auth-error">{error}</p>}

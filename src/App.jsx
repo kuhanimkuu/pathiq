@@ -9,6 +9,7 @@ import MapFeaturePage from './pages/marketing/MapFeaturePage'
 import ScoutProgramPage from './pages/marketing/ScoutProgramPage'
 import DevelopersPage from './pages/marketing/DevelopersPage'
 import PricingPage from './pages/marketing/PricingPage'
+import { PrivacyPage, TermsPage } from './pages/marketing/LegalPages'
 import Home from './pages/Home'
 import MapPage from './pages/MapPage'
 import RoutesPage from './pages/RoutesPage'
@@ -47,11 +48,31 @@ function RequireSession({ children }) {
   return children
 }
 
+function useOnline() {
+  const [online, setOnline] = useState(() => navigator.onLine)
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
+  return online
+}
+
 function AppShell() {
+  const online = useOnline()
   return (
     <div className="app-shell">
       <TopBar />
       <main className="app-content">
+        {!online && (
+          <div className="offline-banner" role="status">
+            You&apos;re offline. Maps, routes and live data come back when you reconnect.
+          </div>
+        )}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/map" element={<MapPage />} />
@@ -81,6 +102,8 @@ function App() {
         <Route path="/scout-program" element={<ScoutProgramPage />} />
         <Route path="/developers" element={<DevelopersPage />} />
         <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
       </Route>
       <Route
         path="/app/*"

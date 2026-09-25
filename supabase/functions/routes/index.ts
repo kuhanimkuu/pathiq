@@ -2,7 +2,8 @@
 // Body: { origin: { lat, lng }, destination: { lat, lng } }
 //
 // Gets driving alternatives from Google, scores each against PathIQ's verified
-// road reports, and labels them Recommended, Fastest and Best Road.
+// road reports, and labels them Recommended, Fastest and Best Road. Each option
+// carries its turn-by-turn steps for in-app navigation.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, json } from '../_shared/cors.ts'
@@ -21,6 +22,13 @@ import {
 const CACHE_TTL_MS = 10 * 60 * 1000
 const REPORT_CORRIDOR_M = 50
 const MAX_ALERTS = 3
+
+// Rate limits (see the rate_limits migration). Per user and per IP on every
+// request; the global cap only counts requests that actually reach Google,
+// so it bounds the Google bill however many guest accounts someone creates.
+const USER_LIMIT = { max: 30, window: '10 minutes' }
+const IP_LIMIT = { max: 60, window: '10 minutes' }
+const GLOBAL_GOOGLE_CALLS_PER_HOUR = Number(Deno.env.get('ROUTES_GLOBAL_LIMIT_PER_HOUR') ?? 1500)
 
 // Kenya, with some margin. Keeps stray requests from spending Google quota.
 const BOUNDS = { minLat: -5, maxLat: 5.5, minLng: 33.5, maxLng: 42 }
@@ -70,6 +78,9 @@ Deno.serve(async (req) => {
   const { data: userData, error: userError } = await userClient.auth.getUser()
   if (userError || !userData.user) return json({ error: 'Not signed in' }, 401)
 
+  // The body is two points; anything big is not a real request.
+  if (Number(req.headers.get('content-length') ?? 0) > 4096) return json({ error: 'Body too large' }, 413)
+
   let body: { origin?: unknown; destination?: unknown }
   try {
     body = await req.json()
@@ -82,8 +93,26 @@ Deno.serve(async (req) => {
     return json({ error: 'origin and destination need numeric lat and lng inside Kenya' }, 400)
   }
 
-  // The cache table is server-only, so it uses the service role.
+  // The cache and rate-limit tables are server-only, so they use the service role.
   const admin = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+  const consume = async (key: string, max: number, window: string): Promise<boolean> => {
+    const { data, error } = await admin.rpc('consume_rate_limit', { p_key: key, p_max: max, p_window: window })
+    if (error) {
+      console.error('rate limit check failed', error)
+      return true // fail open: a broken limiter shouldn't take routing down
+    }
+    return data === true
+  }
+  const tooMany = (message: string) => json({ error: message }, 429, { 'Retry-After': '600' })
+
+  const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unknown'
+  if (!(await consume(`routes:user:${userData.user.id}`, USER_LIMIT.max, USER_LIMIT.window))) {
+    return tooMany('Too many route requests. Please wait a few minutes and try again.')
+  }
+  if (!(await consume(`routes:ip:${ip}`, IP_LIMIT.max, IP_LIMIT.window))) {
+    return tooMany('Too many route requests from this network. Please wait a few minutes and try again.')
+  }
+
   const key = cacheKey(origin, destination)
 
   let googleRoutes: GoogleRoute[] | null = null
@@ -95,12 +124,19 @@ Deno.serve(async (req) => {
     .eq('key', key)
     .gt('expires_at', new Date().toISOString())
     .maybeSingle()
-  if (hit) {
-    googleRoutes = hit.response as GoogleRoute[]
+  // Entries cached before turn-by-turn steps were added have no `steps`;
+  // treat those as a miss rather than serving routes you can't navigate.
+  const hitRoutes = hit?.response as GoogleRoute[] | undefined
+  if (hitRoutes && hitRoutes.every((r) => Array.isArray(r.steps))) {
+    googleRoutes = hitRoutes
     cached = true
   }
 
   if (!googleRoutes) {
+    if (!(await consume('routes:google:global', GLOBAL_GOOGLE_CALLS_PER_HOUR, '1 hour'))) {
+      console.error('global Google Routes budget reached for this hour')
+      return json({ error: 'Routing is busy right now. Please try again shortly.' }, 503, { 'Retry-After': '300' })
+    }
     try {
       googleRoutes = await computeRoutes(googleKey, origin, destination)
     } catch (error) {
@@ -170,6 +206,7 @@ Deno.serve(async (req) => {
       staticDurationS: r.route.staticDurationS,
       distanceM: r.route.distanceM,
       encodedPolyline: r.route.encodedPolyline,
+      steps: r.route.steps,
       scores: r.scores,
       reportCount: r.reports.length,
       // The worst problems on this route, for the UI to show.

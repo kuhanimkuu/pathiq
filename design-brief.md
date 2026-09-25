@@ -76,7 +76,7 @@ This matters visually: **the bottom tab bar, Profile page content, and available
 - **Pricing:** currently just "free for drivers, for now" — pricing model is undecided (see `description.md`).
 
 ### App
-- **Home:** IQ score ring, two stat cards (trips this month, gems found), an "Active route" card (**still mock data**), "Incidents near you" and "Gems near you" (**both real**, from the driver's live location).
+- **Home:** IQ score ring, two stat cards (trips this month, gems found), an "Active route" card (the trip in progress, with Resume navigation), "Incidents near you" and "Gems near you" (**both real**, from the driver's live location).
 - **Map:** placeholder only. This is the actual design gap.
 - **Routes:** 3 route option cards, same shape as the marketing version, plus a "Start navigation" button (**not wired up yet** — depends on the Google Maps key).
 - **Gems:** category filter chips (Attractions, Hotels, Food, Scenic, Fuel, Facilities), a list of gems each with a 5-star rate control and a save/bookmark toggle.

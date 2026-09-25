@@ -9,8 +9,30 @@ import {
   reviewRoadReport,
   reviewScoutApplication,
   markEarningPaid,
+  scoutPhotoUrl,
 } from '../lib/admin'
 import { reportTypeLabel, timeAgo } from '../lib/roadReports'
+
+function ReviewPhoto({ path }) {
+  const [url, setUrl] = useState(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    scoutPhotoUrl(path)
+      .then((u) => !cancelled && setUrl(u))
+      .catch(() => !cancelled && setFailed(true))
+    return () => {
+      cancelled = true
+    }
+  }, [path])
+  if (failed) return <p className="list-row-sub">Photo couldn&apos;t be loaded.</p>
+  if (!url) return <div className="review-photo review-photo-loading" />
+  return (
+    <a href={url} target="_blank" rel="noreferrer">
+      <img src={url} alt="Scout's photo" className="review-photo" />
+    </a>
+  )
+}
 
 const tabs = [
   { key: 'gems', label: 'Gems' },
@@ -137,6 +159,7 @@ function Admin() {
                 {gem.category} · submitted {timeAgo(gem.created_at)}
                 {gem.description ? ` · ${gem.description}` : ''}
               </div>
+              {gem.photo_path && <ReviewPhoto path={gem.photo_path} />}
               <div className="review-card-actions">
                 <button
                   className="review-approve-btn"
@@ -170,6 +193,7 @@ function Admin() {
                 submitted {timeAgo(report.created_at)}
                 {report.description ? ` · ${report.description}` : ''}
               </div>
+              {report.photo_path && <ReviewPhoto path={report.photo_path} />}
               <div className="review-card-actions">
                 <button
                   className="review-approve-btn"

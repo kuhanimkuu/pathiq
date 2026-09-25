@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Outlet, Link, useNavigate } from 'react-router-dom'
+import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
+import { Menu, X } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
 import '../Landing.css'
 
@@ -15,6 +16,10 @@ const navLinks = [
 
 function MarketingLayout() {
   const [showAuth, setShowAuth] = useState(false)
+  // Mobile menu (<980px, where .nav-links is hidden). Closes on navigation.
+  const location = useLocation()
+  const [menuPath, setMenuPath] = useState(null)
+  const menuOpen = menuPath === location.pathname
   const [authView, setAuthView] = useState('signin') // 'signin' | 'signup'
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
@@ -167,10 +172,34 @@ function MarketingLayout() {
             ))}
           </nav>
           <div className="nav-actions">
-            <a href="/signin" className="link-plain" onClick={openSignIn}>Sign in</a>
+            <a href="/signin" className="link-plain nav-signin" onClick={openSignIn}>Sign in</a>
             <Link to="/app/map" className="btn btn-primary">Open the map</Link>
+            <button
+              className="nav-menu-btn"
+              onClick={() => setMenuPath(menuOpen ? null : location.pathname)}
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+            >
+              {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
           </div>
         </div>
+        {menuOpen && (
+          <nav className="nav-mobile">
+            {navLinks.map((link) => (
+              <Link key={link.to} to={link.to}>{link.label}</Link>
+            ))}
+            <a
+              href="/signin"
+              onClick={(e) => {
+                setMenuPath(null)
+                openSignIn(e)
+              }}
+            >
+              Sign in
+            </a>
+          </nav>
+        )}
       </header>
 
       <Outlet />
@@ -196,7 +225,7 @@ function MarketingLayout() {
             <Link to="/app/map">Live Map</Link>
             <Link to="/map">Road conditions &amp; routing</Link>
             <Link to="/hidden-gems">Hidden Gems</Link>
-            <a href="#">Mobile App</a>
+            <Link to="/app/profile">Mobile App</Link>
           </div>
 
           <div className="footer-col">
@@ -230,9 +259,8 @@ function MarketingLayout() {
         <div className="footer-bottom">
           <span>&copy; 2026 PathIQ Navigators Ltd. All rights reserved.</span>
           <div className="footer-legal">
-            <a href="#">Privacy Policy</a>
-            <a href="#">Terms of Service</a>
-            <a href="#">Cookie Policy</a>
+            <Link to="/privacy">Privacy Policy</Link>
+            <Link to="/terms">Terms of Use</Link>
           </div>
         </div>
       </footer>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../context/useAuth'
-import { submitRoadReport, submitGem } from '../lib/scouts'
+import { submitRoadReport, submitGem, uploadScoutPhoto } from '../lib/scouts'
 import { getCurrentPosition } from '../lib/gems'
 
 const reportTypes = [
@@ -33,6 +33,26 @@ function LocationField({ position, locating, onLocate }) {
   )
 }
 
+// Opens the rear camera on phones (capture="environment"), file picker elsewhere.
+function PhotoField({ file, onChange }) {
+  const [preview, setPreview] = useState(null)
+  function handleChange(e) {
+    const next = e.target.files?.[0] ?? null
+    if (preview) URL.revokeObjectURL(preview)
+    setPreview(next ? URL.createObjectURL(next) : null)
+    onChange(next)
+  }
+  return (
+    <div className="photo-field">
+      <label className="photo-field-btn">
+        {file ? 'Change photo' : 'Add a photo (optional)'}
+        <input type="file" accept="image/*" capture="environment" onChange={handleChange} hidden />
+      </label>
+      {preview && file && <img src={preview} alt="Selected" className="photo-field-preview" />}
+    </div>
+  )
+}
+
 function Scout() {
   const { session, profile } = useAuth()
   const userId = session?.user?.id
@@ -45,6 +65,7 @@ function Scout() {
   const [reportSubmitting, setReportSubmitting] = useState(false)
   const [reportError, setReportError] = useState('')
   const [reportDone, setReportDone] = useState(false)
+  const [reportPhoto, setReportPhoto] = useState(null)
 
   const [gemCategory, setGemCategory] = useState('food')
   const [gemPosition, setGemPosition] = useState(null)
@@ -52,6 +73,7 @@ function Scout() {
   const [gemSubmitting, setGemSubmitting] = useState(false)
   const [gemError, setGemError] = useState('')
   const [gemDone, setGemDone] = useState(false)
+  const [gemPhoto, setGemPhoto] = useState(null)
 
   if (profile && profile.role !== 'scout' && profile.role !== 'admin') {
     return (
@@ -83,14 +105,17 @@ function Scout() {
     setReportSubmitting(true)
     const description = new FormData(e.target).get('description')
     try {
+      const photoPath = reportPhoto ? await uploadScoutPhoto(userId, reportPhoto) : null
       await submitRoadReport(userId, {
         type: reportType,
         severity,
         description,
         lat: reportPosition.lat,
         lng: reportPosition.lng,
+        photoPath,
       })
       setReportDone(true)
+      setReportPhoto(null)
       e.target.reset()
     } catch (err) {
       setReportError(err.message)
@@ -109,14 +134,17 @@ function Scout() {
     setGemSubmitting(true)
     const form = new FormData(e.target)
     try {
+      const photoPath = gemPhoto ? await uploadScoutPhoto(userId, gemPhoto) : null
       await submitGem(userId, {
         name: form.get('name'),
         category: gemCategory,
         description: form.get('description'),
         lat: gemPosition.lat,
         lng: gemPosition.lng,
+        photoPath,
       })
       setGemDone(true)
+      setGemPhoto(null)
       e.target.reset()
     } catch (err) {
       setGemError(err.message)
@@ -169,6 +197,8 @@ function Scout() {
 
             <textarea name="description" className="form-textarea" placeholder="What did you see? (optional)" />
 
+            <PhotoField file={reportPhoto} onChange={setReportPhoto} />
+
             <LocationField
               position={reportPosition}
               locating={reportLocating}
@@ -206,6 +236,8 @@ function Scout() {
               ))}
             </select>
             <textarea name="description" className="form-textarea" placeholder="What makes it worth a detour? (optional)" />
+
+            <PhotoField file={gemPhoto} onChange={setGemPhoto} />
 
             <LocationField
               position={gemPosition}

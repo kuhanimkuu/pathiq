@@ -1,30 +1,48 @@
-import { useState } from 'react'
-import { currentUser as mockStats } from '../data/mockData'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from './useAuth'
 import { UserContext } from './user-context'
+import { fetchDriverStats } from '../lib/trips'
 
-// Bridges the real Supabase profile to the shape the app's pages expect.
-// tripsThisMonth and gemsFound aren't tracked yet (no trips/stats backend),
-// so they still come from mock data — see features.md, "Home dashboard".
+// Bridges the real Supabase profile and driver stats to the shape the app's
+// pages expect. iqScore is null until the driver has a counted trip in the
+// last 30 days (see the trip tracking migration for the formula).
 export function UserProvider({ children }) {
-  const { profile, isGuest } = useAuth()
-  // iq_score isn't client-writable (see supabase/README.md) and the scoring
-  // algorithm itself isn't built yet (features.md, phase 3), so the "+1 IQ
-  // Score (test)" button only ever adjusts this local override.
-  const [iqOverride, setIqOverride] = useState(null)
+  const { session, profile, isGuest, refreshProfile } = useAuth()
+  const userId = session?.user?.id
+  const [stats, setStats] = useState({ tripsThisMonth: null, gemsFound: null })
+
+  const refreshStats = useCallback(async () => {
+    if (!userId) return
+    try {
+      setStats(await fetchDriverStats())
+    } catch {
+      // stat cards just show "–"; nothing else depends on them
+    }
+  }, [userId])
+
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    fetchDriverStats()
+      .then((s) => !cancelled && setStats(s))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
+
+  // Pages call this on mount so numbers are current after a trip.
+  const refresh = useCallback(() => Promise.all([refreshStats(), refreshProfile()]), [refreshStats, refreshProfile])
 
   const user = {
-    ...mockStats,
-    name: profile?.display_name || profile?.username || (isGuest ? 'Guest' : mockStats.name),
-    iqScore: iqOverride ?? profile?.iq_score ?? mockStats.iqScore,
+    name: profile?.display_name || profile?.username || 'Guest',
+    iqScore: profile?.iq_score ?? null,
+    tripsThisMonth: stats.tripsThisMonth,
+    gemsFound: stats.gemsFound,
     isGuest,
   }
 
-  function updateIQScore(newScore) {
-    setIqOverride(newScore)
-  }
-
-  const value = { user, updateIQScore }
+  const value = { user, refresh }
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>
 }

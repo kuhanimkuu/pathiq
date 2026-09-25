@@ -71,11 +71,11 @@ export default function HeroSection() {
             ))}
           </svg>
 
-          <div className="route-card">
-            <div className="route-card-label">Recommended route</div>
-            <div className="route-time">2h 12m</div>
-            <div className="route-meta">156 km &middot; CBD &rarr; Karen</div>
-            <div className="route-scores">
+          <div className="hero-route-card">
+            <div className="hero-route-card-label">Recommended route</div>
+            <div className="hero-route-time">2h 12m</div>
+            <div className="hero-route-meta">156 km &middot; CBD &rarr; Karen</div>
+            <div className="hero-route-scores">
               <span className="score score-green">91</span>
               <span className="score score-amber">84</span>
               <span className="score score-blue">93</span>

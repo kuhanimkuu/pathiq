@@ -7,7 +7,7 @@ import { supabase } from './supabase'
 export async function fetchPendingGems() {
   const { data, error } = await supabase
     .from('gems')
-    .select('id, name, category, description, created_at, created_by')
+    .select('id, name, category, description, photo_path, created_at, created_by')
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
   if (error) throw error
@@ -17,7 +17,7 @@ export async function fetchPendingGems() {
 export async function fetchPendingRoadReports() {
   const { data, error } = await supabase
     .from('road_reports')
-    .select('id, type, severity, description, created_at, reported_by')
+    .select('id, type, severity, description, photo_path, created_at, reported_by')
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
   if (error) throw error
@@ -42,6 +42,14 @@ export async function fetchApprovedEarnings() {
     .order('created_at', { ascending: true })
   if (error) throw error
   return data ?? []
+}
+
+// scout-photos is private; admins can read it (storage policy), via a
+// short-lived signed URL.
+export async function scoutPhotoUrl(path) {
+  const { data, error } = await supabase.storage.from('scout-photos').createSignedUrl(path, 60 * 10)
+  if (error) throw error
+  return data.signedUrl
 }
 
 export async function reviewGem(gemId, approve) {

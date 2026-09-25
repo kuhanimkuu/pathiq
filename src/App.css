@@ -1086,12 +1086,19 @@ html.light .map-alert {
 }
 
 /* ── Turn-by-turn navigation ── */
-.nav-banner {
+/* Banner, "Then" strip and gem alerts stack in one column at the top. */
+.nav-top {
   position: absolute;
   top: 16px;
   left: 16px;
   right: 16px;
   z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nav-banner {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1254,11 +1261,6 @@ html.light .map-alert {
 
 /* ── Gem alerts while navigating ── */
 .nav-gem-alert {
-  position: absolute;
-  top: 100px;
-  left: 16px;
-  right: 16px;
-  z-index: 16;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1529,4 +1531,137 @@ html.light .map-alert {
 .history-btn.icon { width: 32px; padding: 0; justify-content: center; color: var(--muted-foreground); }
 @media (max-width: 520px) {
   .history-trip { flex-direction: column; }
+}
+
+/* ── Written directions (text alongside the voice) ── */
+.nav-banner-detail {
+  font-size: 12.5px;
+  font-weight: 500;
+  opacity: 0.8;
+  margin-top: 3px;
+}
+
+.nav-then {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 7px 12px;
+  border-radius: 10px;
+  background: #007A66; /* a darker --primary, so it reads as part of the banner */
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.nav-then span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.nav-icon-btn.active { color: var(--primary); border-color: var(--primary); }
+
+.directions {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 96px;
+  z-index: 16;
+  max-height: 55%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+@media (min-width: 900px) {
+  .directions { right: auto; width: 420px; }
+}
+.directions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 15px;
+}
+.directions-list { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; }
+.directions-step {
+  display: flex;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.directions-step:last-child { border-bottom: none; }
+.directions-step.done { opacity: 0.45; }
+.directions-step.next { background: rgba(0, 201, 167, 0.1); }
+.directions-step.next .directions-icon { background: var(--primary); color: var(--primary-foreground); }
+.directions-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: var(--secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.directions-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.directions-instruction { font-size: 13.5px; font-weight: 600; }
+.directions-detail { font-size: 12px; color: var(--muted-foreground); }
+.directions-distance { font-size: 11.5px; color: var(--muted-foreground); }
+
+/* ── Turn icons on the route (only at street level) ── */
+.maneuver-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  color: #050D0B;
+  border: 2px solid #00C9A7;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.map-canvas.show-maneuvers .maneuver-marker { display: flex; }
+
+/* ── Route panel: traffic text, legend, actions ── */
+.route-option-scores .traffic-slow { color: var(--amber); }
+.route-option-scores .traffic-jam { color: var(--red); font-weight: 600; }
+
+.route-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.route-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.route-legend .swatch { width: 16px; height: 4px; border-radius: 2px; display: inline-block; }
+.route-legend .swatch.dotted {
+  height: 6px;
+  background: radial-gradient(circle, var(--amber) 2px, transparent 2.5px) 0 0 / 6px 6px repeat-x;
+}
+
+.route-panel-actions { display: flex; gap: 8px; margin-top: 12px; }
+.route-panel-actions .route-panel-start { margin-top: 0; flex: 1; }
+.route-panel-steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }

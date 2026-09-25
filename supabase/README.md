@@ -135,15 +135,28 @@ It returns the route options, best first:
     "distanceM": 156000,
     "encodedPolyline": "...",
     "scores": { "roadQuality": 92, "traffic": 78, "incidents": 96, "time": 95, "overall": 90 },
-    "reportCount": 4,
-    "alerts": [{ "type": "pothole", "severity": 4, "lng": 36.77, "lat": -1.30, "routeFraction": 0.31 }]
+    "reportCount": 1,
+    "hazards": [{ "id": "…", "type": "pothole", "severity": 4, "routeFraction": 0.31 }],
+    "alerts": [{ "type": "pothole", "severity": 4, "lng": 36.77, "lat": -1.30, "routeFraction": 0.31 }],
+    "traffic": [{ "from": 11, "to": 17, "speed": "TRAFFIC_JAM" }, { "from": 23, "to": 31, "speed": "SLOW" }],
+    "steps": [{
+      "instruction": "Turn left onto Ngong Rd",
+      "detail": "Pass by Prestige Plaza (on the left)",
+      "maneuver": "TURN_LEFT",
+      "distanceM": 850, "durationS": 110,
+      "start": { "lat": -1.30, "lng": 36.78 }, "end": { "lat": -1.30, "lng": 36.77 }
+    }]
   }]
 }
 ```
 
+- `hazards` / `alerts` / `reportCount` only include reports that still matter (`isStillRelevant` in `scoring.ts`). `alerts` is the worst three.
+- `traffic` lists the slow and jammed stretches, as polyline point ranges (`to` exclusive). It's empty when `ROUTES_TRAFFIC_ON_POLYLINE=false`: traffic-on-polyline requests are billed at Google's higher "Advanced" rate.
+- `steps` are the turn-by-turn directions. `instruction` is the manoeuvre, and `detail` is Google's extra text, shown on screen but not spoken.
+
 How it works:
 1. Validates the request. Both points must be inside Kenya, to protect the Google quota.
-2. Gets driving alternatives with live traffic from Google's Routes API. The response is cached for 10 minutes by rounded origin and destination.
+2. Gets driving alternatives with live traffic (and, unless turned off, traffic along each route) from Google's Routes API. The response is cached for 10 minutes by rounded origin and destination. Entries cached before a newer field existed (`steps`, `traffic`) are treated as a miss.
 3. For each route, fetches verified road reports within 50 m with `road_reports_along_route`.
 4. Scores each route (`_shared/scoring.ts`), then labels the winners: **recommended** (best overall), **fastest** (least time) and **best_road** (best road quality). One route can hold several labels.
 
@@ -153,7 +166,7 @@ The gem suggestion engine runs in the app rather than here. It uses `gems_along_
 
 ## Tests
 
-The scoring, polyline and Google-response tests are Deno tests (20 of them). Without Deno installed, run them with `npx deno@2 test _shared/` from `supabase/functions`, or in Docker:
+The scoring, polyline and Google-response tests are Deno tests (21 of them). Without Deno installed, run them with `npx deno@2 test _shared/` from `supabase/functions`, or in Docker:
 
 ```bash
 docker run --rm -v "$PWD/supabase/functions:/app" -w /app denoland/deno test _shared/
@@ -197,7 +210,7 @@ update public.profiles set role = 'admin' where username = 'your-username';
 
 ## Status and open items
 
-- **Verified on the hosted project (2026-09-26).** All migrations apply cleanly, the 20 Deno tests pass, `npm run test:security` passes 61/61, and the `routes` function is deployed and returning real Google routes.
+- **Verified on the hosted project (2026-09-26).** All migrations apply cleanly, the 21 Deno tests pass, `npm run test:security` passes 61/61, and the `routes` function is deployed and returning real Google routes.
 - **Email confirmation is currently off on the hosted project** (`enable_confirmations = false`), left that way after an accidental `config push` (see the warning above) and a follow-up dashboard fix that didn't fully take — the "Confirm email" toggle wasn't findable in this Supabase dashboard build under Auth Providers → Email. Anyone can sign up with an unverified email address until this is fixed. Low risk pre-launch (no real users yet), but **must be resolved before real users sign up** — try Authentication → Emails, or the Management API (`PATCH /v1/projects/{ref}/config/auth`) if the dashboard toggle can't be found.
 - **`GOOGLE_MAPS_API_KEY` is set** (2026-09-25) to a single demo key that has both the Routes and Maps JS APIs enabled. Split it into a server key and a browser key before launch (see `progress.md`).
 - **Turning on email confirmation needs custom SMTP first.** Supabase's built-in mailer only sends to the project's team members, so with confirmation on and no SMTP, real sign-ups would never get their email.

@@ -35,6 +35,8 @@ export function loadGoogleMaps() {
           window.google.maps.importLibrary('places'),
         ])
         const api = { ...core, ...maps, ...places }
+        // Arrow/dot shapes for route lines; not in every library bundle.
+        api.SymbolPath ??= window.google.maps.SymbolPath
         api.HtmlMarker = defineHtmlMarker(api)
         resolve(api)
       } catch (err) {

@@ -8,13 +8,25 @@ export interface LatLng {
 
 // One turn-by-turn step. The instruction describes the manoeuvre at the
 // *start* of the step ("Turn left onto Ngong Rd"), then you drive distanceM.
+// `detail` is Google's extra text for the step, e.g. "Pass by Sarit Centre (on
+// the left)" or "Destination will be on the right" — shown, not spoken.
 export interface GoogleStep {
   instruction: string
+  detail: string
   maneuver: string
   distanceM: number
   durationS: number
   start: LatLng
   end: LatLng
+}
+
+// Live traffic along the route: a stretch of the polyline, by point index
+// (end exclusive), and how fast traffic is moving on it.
+export type TrafficSpeed = 'NORMAL' | 'SLOW' | 'TRAFFIC_JAM'
+export interface TrafficInterval {
+  from: number
+  to: number
+  speed: TrafficSpeed
 }
 
 export interface GoogleRoute {
@@ -23,10 +35,11 @@ export interface GoogleRoute {
   distanceM: number
   encodedPolyline: string
   steps: GoogleStep[]
+  traffic: TrafficInterval[]
 }
 
 const ENDPOINT = 'https://routes.googleapis.com/directions/v2:computeRoutes'
-const FIELD_MASK = [
+const BASE_FIELDS = [
   'routes.duration',
   'routes.staticDuration',
   'routes.distanceMeters',
@@ -36,7 +49,8 @@ const FIELD_MASK = [
   'routes.legs.steps.startLocation',
   'routes.legs.steps.endLocation',
   'routes.legs.steps.navigationInstruction',
-].join(',')
+]
+const TRAFFIC_FIELDS = ['routes.travelAdvisory.speedReadingIntervals']
 
 // Google returns durations as strings such as "1234s".
 const seconds = (value: string | undefined): number => (value ? parseInt(value, 10) : 0)
@@ -53,12 +67,18 @@ interface ApiStep {
   endLocation?: ApiLocation
   navigationInstruction?: { maneuver?: string; instructions?: string }
 }
+interface ApiSpeedInterval {
+  startPolylinePointIndex?: number
+  endPolylinePointIndex?: number
+  speed?: string
+}
 interface ApiRoute {
   duration?: string
   staticDuration?: string
   distanceMeters?: number
   polyline?: { encodedPolyline?: string }
   legs?: { steps?: ApiStep[] }[]
+  travelAdvisory?: { speedReadingIntervals?: ApiSpeedInterval[] }
 }
 
 const toLatLng = (l: ApiLocation | undefined): LatLng => ({
@@ -66,12 +86,17 @@ const toLatLng = (l: ApiLocation | undefined): LatLng => ({
   lng: l?.latLng?.longitude ?? 0,
 })
 
+// Google's first line is the manoeuvre; any further lines ("Pass by X (on the
+// left)", "Destination will be on the right") are detail.
+function splitInstructions(text: string | undefined): { instruction: string; detail: string } {
+  const [instruction = '', ...rest] = (text ?? '').split('\n').map((line) => line.trim())
+  return { instruction, detail: rest.filter(Boolean).join(' · ') }
+}
+
 export function parseSteps(route: ApiRoute): GoogleStep[] {
   return (route.legs ?? []).flatMap((leg) =>
     (leg.steps ?? []).map((s) => ({
-      // Google appends extra lines such as "Pass by X (on the left)" — the
-      // first line is the actual manoeuvre.
-      instruction: (s.navigationInstruction?.instructions ?? '').split('\n')[0],
+      ...splitInstructions(s.navigationInstruction?.instructions),
       maneuver: s.navigationInstruction?.maneuver ?? 'STRAIGHT',
       distanceM: s.distanceMeters ?? 0,
       durationS: seconds(s.staticDuration),
@@ -81,17 +106,30 @@ export function parseSteps(route: ApiRoute): GoogleStep[] {
   )
 }
 
+// Keeps only the slow and jammed stretches — "normal" is just the route colour.
+// Google omits startPolylinePointIndex when it's 0.
+export function parseTraffic(route: ApiRoute): TrafficInterval[] {
+  return (route.travelAdvisory?.speedReadingIntervals ?? [])
+    .filter((i) => i.speed === 'SLOW' || i.speed === 'TRAFFIC_JAM')
+    .map((i) => ({ from: i.startPolylinePointIndex ?? 0, to: i.endPolylinePointIndex ?? 0, speed: i.speed as TrafficSpeed }))
+    .filter((i) => i.to > i.from)
+}
+
+// withTraffic adds live traffic along each route (TRAFFIC_ON_POLYLINE). Google
+// bills that request at its higher "Advanced" rate, so it can be switched off
+// with the ROUTES_TRAFFIC_ON_POLYLINE secret (see routes/index.ts).
 export async function computeRoutes(
   apiKey: string,
   origin: LatLng,
   destination: LatLng,
+  { withTraffic = true }: { withTraffic?: boolean } = {},
 ): Promise<GoogleRoute[]> {
   const response = await fetch(ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': apiKey,
-      'X-Goog-FieldMask': FIELD_MASK,
+      'X-Goog-FieldMask': [...BASE_FIELDS, ...(withTraffic ? TRAFFIC_FIELDS : [])].join(','),
     },
     body: JSON.stringify({
       origin: waypoint(origin),
@@ -100,6 +138,7 @@ export async function computeRoutes(
       routingPreference: 'TRAFFIC_AWARE',
       computeAlternativeRoutes: true,
       polylineEncoding: 'ENCODED_POLYLINE',
+      ...(withTraffic ? { extraComputations: ['TRAFFIC_ON_POLYLINE'] } : {}),
     }),
   })
 
@@ -114,5 +153,6 @@ export async function computeRoutes(
     distanceM: r.distanceMeters ?? 0,
     encodedPolyline: r.polyline?.encodedPolyline ?? '',
     steps: parseSteps(r),
+    traffic: parseTraffic(r),
   }))
 }

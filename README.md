@@ -24,7 +24,7 @@ Edge function tests (Deno): `cd supabase/functions && deno test _shared/` (or `n
 ## Keys and secrets
 
 - **`.env`** (git-ignored): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_GOOGLE_MAPS_API_KEY`. The Maps key ends up in the browser bundle, so restrict it by HTTP referrer and to the Maps JavaScript + Places APIs, and set a daily quota.
-- **Supabase secrets**: `GOOGLE_MAPS_API_KEY` (server key, Routes API only) for the `routes` edge function; optional `ROUTES_GLOBAL_LIMIT_PER_HOUR` (default 1500).
+- **Supabase secrets**: `GOOGLE_MAPS_API_KEY` (server key, Routes API only) for the `routes` edge function. Optional: `ROUTES_GLOBAL_LIMIT_PER_HOUR` (default 1500), and `ROUTES_TRAFFIC_ON_POLYLINE=false` to turn off traffic shading on routes, which Google bills at a higher rate.
 
 ## Layout
 

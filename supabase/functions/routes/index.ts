@@ -30,6 +30,9 @@ const MAX_ALERTS = 3
 const USER_LIMIT = { max: 30, window: '10 minutes' }
 const IP_LIMIT = { max: 60, window: '10 minutes' }
 const GLOBAL_GOOGLE_CALLS_PER_HOUR = Number(Deno.env.get('ROUTES_GLOBAL_LIMIT_PER_HOUR') ?? 1500)
+// Live traffic colours on the route line. Google bills these requests at its
+// higher "Advanced" rate; set ROUTES_TRAFFIC_ON_POLYLINE=false to turn it off.
+const TRAFFIC_ON_POLYLINE = Deno.env.get('ROUTES_TRAFFIC_ON_POLYLINE') !== 'false'
 
 // Kenya, with some margin. Keeps stray requests from spending Google quota.
 const BOUNDS = { minLat: -5, maxLat: 5.5, minLng: 33.5, maxLng: 42 }
@@ -128,7 +131,7 @@ Deno.serve(async (req) => {
   // Entries cached before turn-by-turn steps were added have no `steps`;
   // treat those as a miss rather than serving routes you can't navigate.
   const hitRoutes = hit?.response as GoogleRoute[] | undefined
-  if (hitRoutes && hitRoutes.every((r) => Array.isArray(r.steps))) {
+  if (hitRoutes && hitRoutes.every((r) => Array.isArray(r.steps) && Array.isArray(r.traffic))) {
     googleRoutes = hitRoutes
     cached = true
   }
@@ -139,7 +142,7 @@ Deno.serve(async (req) => {
       return json({ error: 'Routing is busy right now. Please try again shortly.' }, 503, { 'Retry-After': '300' })
     }
     try {
-      googleRoutes = await computeRoutes(googleKey, origin, destination)
+      googleRoutes = await computeRoutes(googleKey, origin, destination, { withTraffic: TRAFFIC_ON_POLYLINE })
     } catch (error) {
       console.error(error)
       return json({ error: 'Could not get routes from Google' }, 502)
@@ -209,6 +212,7 @@ Deno.serve(async (req) => {
       distanceM: r.route.distanceM,
       encodedPolyline: r.route.encodedPolyline,
       steps: r.route.steps,
+      traffic: r.route.traffic,
       scores: r.scores,
       // Only reports that still matter (see isStillRelevant): a two-day-old
       // accident has faded out of the score, so it shouldn't be shown either.

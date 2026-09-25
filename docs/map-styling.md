@@ -9,7 +9,7 @@ How the PathIQ map gets its look, and how to change it: colours, what Google sho
 | Base-map colours, and which Google features are hidden | `src/lib/mapStyle.js` |
 | Creating a map with that style | `createPathiqMap()` in `src/lib/googleMaps.js` |
 | Our markers (gems, road reports, you, destination) | `HtmlMarker` in `src/lib/googleMaps.js`, plus `.map-pin*` classes in `src/App.css` |
-| Route line colours, road-report stretches | constants at the top of `src/pages/MapPage.jsx` |
+| Route line colours, traffic shading, direction arrows, road-report dots, turn icons | constants at the top of `src/pages/MapPage.jsx`; turn icons in `src/components/ManeuverIcon.jsx` |
 | Layer switcher (Gems / Road reports / Traffic) | `layers` state in `src/pages/MapPage.jsx` |
 
 ---
@@ -131,16 +131,23 @@ The emoji per category and report type are in `src/lib/icons.js`.
 
 ### Route lines
 
-At the top of `src/pages/MapPage.jsx`:
+The selected route is drawn in layers, bottom to top:
 
-```js
-const ROUTE_COLOR = '#00C9A7'      // selected route (= --primary)
-const ALT_ROUTE_COLOR = '#7A8C88'  // other alternatives (= --muted-foreground)
-const REPORT_STRETCH_M = 120       // how much road is painted either side of a report
-const SEVERITY_COLOR = { high: '#EF4444', medium: '#F59E0B', low: '#3B82F6' }  // = --red / --amber / --blue
-```
+| Layer | Looks like | Data |
+|---|---|---|
+| Base line | solid teal (`ROUTE_COLOR`); alternatives grey (`ALT_ROUTE_COLOR`), tap to select | the route polyline |
+| Traffic | solid **amber** where slow, **red** where jammed (`TRAFFIC_COLOR`), like Google Maps | `traffic` intervals from the `routes` function (Google's `TRAFFIC_ON_POLYLINE`) |
+| Road reports | **dotted** stretch in the report's severity colour (`SEVERITY_COLOR`), `REPORT_STRETCH_M` either side | `hazards` from the `routes` function |
+| Direction arrows | small dark chevrons every 80 px along the line | — |
+| Turn icons | white discs with the manoeuvre arrow at each turn, shown from zoom `MANEUVER_MIN_ZOOM` (15) | route `steps` |
 
-The painted stretches come from the `hazards` list the `routes` edge function returns for each route. Only reports that still matter are included (see `isStillRelevant` in `supabase/functions/_shared/scoring.ts`), so an old accident isn't painted.
+Reports are **dotted** and traffic is **solid** on purpose: both use amber and red, and the pattern is what tells them apart. The route panel shows a legend for this.
+
+Traffic shading costs extra: Google bills requests with traffic-on-polyline at its higher "Advanced" rate. Set the Supabase secret `ROUTES_TRAFFIC_ON_POLYLINE=false` to turn it off (routes then draw plain teal).
+
+Only reports that still matter are painted (see `isStillRelevant` in `supabase/functions/_shared/scoring.ts`), so an old accident isn't.
+
+**A gotcha with arrows and dots:** they're `icons` on a polyline whose own stroke is invisible (`strokeOpacity: 0`). Symbols inherit the line's opacity unless they set their own, so every symbol must set `strokeOpacity` (and `fillOpacity` if filled), or it won't show.
 
 ---
 

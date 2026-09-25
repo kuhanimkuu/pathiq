@@ -82,6 +82,10 @@ export function locate(model, pos, prev = { s: 0, seg: 0 }) {
   return best
 }
 
+// Two manoeuvres closer together than this get a "Then …" preview, as in
+// Google Maps: you need to know the second one before you finish the first.
+const THEN_WITHIN_M = 400
+
 // Where we are in the directions, given distance travelled `s`.
 // The instruction on step i+1 is the manoeuvre at the end of step i, so while
 // on step i the *next* thing to do is steps[i + 1] (or arriving).
@@ -90,12 +94,24 @@ export function progress(model, s) {
   let stepIndex = stepEnds.findIndex((end) => end > s)
   if (stepIndex === -1) stepIndex = Math.max(0, steps.length - 1)
   const nextStep = steps[stepIndex + 1] ?? null
+  const afterNext = steps[stepIndex + 2] ?? null
   const remainingM = Math.max(0, total - s)
+  let then = null
+  if (nextStep && nextStep.distanceM <= THEN_WITHIN_M) {
+    then = afterNext
+      ? { instruction: afterNext.instruction, maneuver: afterNext.maneuver }
+      : { instruction: 'Arrive at your destination', maneuver: 'ARRIVE' }
+  }
   return {
     stepIndex,
+    nextStepIndex: stepIndex + 1, // index into steps; === steps.length means arriving
     toNextM: Math.max(0, (stepEnds[stepIndex] ?? total) - s),
     nextInstruction: nextStep ? nextStep.instruction : 'Arrive at your destination',
     nextManeuver: nextStep ? nextStep.maneuver : 'ARRIVE',
+    // Google's extra text for that manoeuvre ("Pass by …"). On the last stretch
+    // it's the last step's own note, e.g. "Destination will be on the right".
+    nextDetail: (nextStep ? nextStep.detail : steps[stepIndex]?.detail?.match(/Destination[^·]*/)?.[0]) ?? '',
+    then,
     remainingM,
     remainingS: total > 0 ? (durationS * remainingM) / total : 0,
     computedAt: Date.now(), // so the arrival time can be shown without reading the clock in render

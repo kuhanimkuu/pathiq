@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { createRoot } from 'react-dom/client'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { X, Bookmark, Star, Navigation2, Play, LocateOff, Gem, TriangleAlert, TrafficCone, MapPinPlus } from 'lucide-react'
+import { X, Bookmark, Star, Navigation2, Play, LocateOff, Gem, TriangleAlert, TrafficCone, MapPinPlus, List } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
 import { fetchNearbyGems, fetchSavedGemIds, fetchSavedGems, saveGem, unsaveGem, confirmGem, getCurrentPosition } from '../lib/gems'
 import { fetchNearbyRoadReports, reportTypeLabel, severityBand } from '../lib/roadReports'
@@ -14,6 +15,8 @@ import { loadAlertPrefs, detourMinutes, corridorForDetour } from '../lib/alertPr
 import { holdWakeLock, notifyIfHidden } from '../lib/driveAssist'
 import NavigationHud from '../components/NavigationHud'
 import DestinationSearch from '../components/DestinationSearch'
+import DirectionsList from '../components/DirectionsList'
+import ManeuverIcon from '../components/ManeuverIcon'
 
 const RADIUS_M = 5000
 const NAV_ZOOM = 17
@@ -43,10 +46,39 @@ const ALT_ROUTE_COLOR = '#7A8C88'
 
 const MUTE_KEY = 'pathiq-nav-muted'
 
-// Road reports painted onto the route: this far either side of the report,
-// in the report's severity colour (mirrors --red / --amber / --blue).
+// Live traffic on the selected route, as in Google Maps: the route colour
+// where it's clear, amber where it's slow, red where it's jammed.
+const TRAFFIC_COLOR = { SLOW: '#F59E0B', TRAFFIC_JAM: '#EF4444' }
+
+// Road reports on the route: a dotted stretch this far either side of the
+// report, in its severity colour (mirrors --red / --amber / --blue). Dotted so
+// it never reads as traffic.
 const REPORT_STRETCH_M = 120
 const SEVERITY_COLOR = { high: '#EF4444', medium: '#F59E0B', low: '#3B82F6' }
+
+// Turn icons along the route appear from this zoom level (street level);
+// further out they'd just be clutter.
+const MANEUVER_MIN_ZOOM = 15
+
+// How much of a route is slow or jammed, in metres, from Google's traffic
+// intervals (polyline point indexes) and the route's own geometry.
+function trafficMetres(option) {
+  if (!option.traffic?.length) return { slowM: 0, jamM: 0 }
+  const { cum } = buildNavModel(option)
+  const out = { slowM: 0, jamM: 0 }
+  for (const t of option.traffic) {
+    const m = (cum[Math.min(t.to, cum.length - 1)] ?? 0) - (cum[Math.min(t.from, cum.length - 1)] ?? 0)
+    if (t.speed === 'TRAFFIC_JAM') out.jamM += m
+    else out.slowM += m
+  }
+  return out
+}
+
+function trafficText({ slowM, jamM }) {
+  if (jamM >= 100) return { text: `Heavy traffic ${(jamM / 1000).toFixed(1)} km`, level: 'jam' }
+  if (slowM >= 100) return { text: `Slow ${(slowM / 1000).toFixed(1)} km`, level: 'slow' }
+  return { text: 'Traffic clear', level: 'clear' }
+}
 
 // `?to=lat,lng&name=…&route=…&nav=1` plans a route on arrival (and starts
 // navigating with nav=1) — used by the Routes tab and Home's "Resume".
@@ -127,6 +159,7 @@ function MapPage() {
   const alertedRef = useRef(new Set())
   const [navError, setNavError] = useState('')
   const [muted, setMuted] = useState(readMuted)
+  const [showRouteSteps, setShowRouteSteps] = useState(false)
   const trackRef = useRef({ s: 0, seg: 0, offCount: 0, lastRerouteAt: 0, lastSavedStep: -1 })
   const spokenRef = useRef(new Set())
 
@@ -220,6 +253,7 @@ function MapPage() {
       setRouting(true)
       setSelected(null)
       setDropped(null)
+      setShowRouteSteps(false)
       try {
         const options = await planRoutes(position, destination)
         const option = options.find((o) => o.id === preferredRouteId) ?? options[0]
@@ -307,6 +341,7 @@ function MapPage() {
     setNavError('')
     setSelected(null)
     setDropped(null)
+    setShowRouteSteps(false)
     saveActiveTrip(tripRecord(next, step))
     speak(`Starting route to ${destinationName}.`)
     const map = mapRef.current
@@ -465,6 +500,11 @@ function MapPage() {
       .then((api) => {
         if (cancelled || !mapDivRef.current) return
         const map = createPathiqMap(api, mapDivRef.current, { center: position, zoom: 14 })
+        // Turn icons only at street level (CSS hides them otherwise).
+        const div = mapDivRef.current
+        const syncZoomClass = () => div.classList.toggle('show-maneuvers', map.getZoom() >= MANEUVER_MIN_ZOOM)
+        map.addListener('zoom_changed', syncZoomClass)
+        syncZoomClass()
         map.addListener('click', (e) => {
           if (latest.current.nav) return // no re-planning mid-drive
           setSelected(null)
@@ -649,10 +689,23 @@ function MapPage() {
         return new api.Polyline({
           map: mapRef.current,
           path: stretch,
-          strokeColor: SEVERITY_COLOR[severityBand(report.severity)],
-          strokeOpacity: 0.95,
-          strokeWeight: 8,
-          zIndex: 3,
+          strokeOpacity: 0, // drawn entirely by the dots below
+          zIndex: 4,
+          icons: [
+            {
+              icon: {
+                path: api.SymbolPath.CIRCLE,
+                scale: 3.2,
+                fillColor: SEVERITY_COLOR[severityBand(report.severity)],
+                fillOpacity: 1,
+                strokeColor: '#050D0B',
+                strokeOpacity: 1, // symbols inherit the line's opacity (0) otherwise
+                strokeWeight: 1.2,
+              },
+              offset: '0',
+              repeat: '11px',
+            },
+          ],
         })
       })
       .filter(Boolean)
@@ -668,21 +721,74 @@ function MapPage() {
     if (!mapReady || !map || !api || !plan) return
     const lines = plan.options
       .filter((option) => !navActive || option.id === plan.selectedId)
-      .map((option) => {
+      .flatMap((option) => {
         const isSelected = option.id === plan.selectedId
-        const line = new api.Polyline({
+        const base = new api.Polyline({
           map,
           path: option.path,
           strokeColor: isSelected ? ROUTE_COLOR : ALT_ROUTE_COLOR,
           strokeOpacity: isSelected ? 0.95 : 0.7,
-          strokeWeight: isSelected ? 6 : 5,
+          strokeWeight: isSelected ? 7 : 5,
           zIndex: isSelected ? 2 : 1,
         })
-        line.addListener('click', () => setPlan((p) => (p ? { ...p, selectedId: option.id } : p)))
-        return line
+        base.addListener('click', () => setPlan((p) => (p ? { ...p, selectedId: option.id } : p)))
+        if (!isSelected) return [base]
+        // Traffic on the selected route, over the base line.
+        const traffic = (option.traffic ?? []).map(
+          (t) =>
+            new api.Polyline({
+              map,
+              path: option.path.slice(t.from, t.to + 1),
+              strokeColor: TRAFFIC_COLOR[t.speed],
+              strokeOpacity: 1,
+              strokeWeight: 7,
+              zIndex: 3,
+            }),
+        )
+        // Direction arrows along the whole route, on top of everything.
+        const arrows = new api.Polyline({
+          map,
+          path: option.path,
+          strokeOpacity: 0,
+          zIndex: 5,
+          clickable: false,
+          icons: [
+            {
+              // Symbols inherit the line's opacity (0 here) unless they set their own.
+              icon: { path: api.SymbolPath.FORWARD_OPEN_ARROW, scale: 1.8, strokeColor: '#050D0B', strokeOpacity: 0.85, strokeWeight: 2 },
+              offset: '30px',
+              repeat: '80px',
+            },
+          ],
+        })
+        return [base, ...traffic, arrows]
       })
     return () => lines.forEach((l) => l.setMap(null))
   }, [mapReady, plan, navActive])
+
+  // Turn icons at each manoeuvre of the selected route (shown at street level).
+  useEffect(() => {
+    const api = mapsApiRef.current
+    if (!mapReady || !api || !selectedRoute?.steps?.length) return
+    const created = selectedRoute.steps.slice(1).map((step) => {
+      const el = document.createElement('div')
+      el.className = 'maneuver-marker'
+      el.title = step.instruction
+      const root = createRoot(el)
+      root.render(<ManeuverIcon maneuver={step.maneuver} size={13} strokeWidth={2.5} />)
+      return { marker: new api.HtmlMarker({ map: mapRef.current, position: step.start, content: el, zIndex: 22 }), root }
+    })
+    return () =>
+      created.forEach(({ marker, root }) => {
+        marker.setMap(null)
+        setTimeout(() => root.unmount()) // not during React's own commit
+      })
+  }, [mapReady, selectedRoute])
+
+  const trafficByRoute = useMemo(
+    () => new Map((plan?.options ?? []).map((o) => [o.id, trafficText(trafficMetres(o))])),
+    [plan],
+  )
 
   // Frame a new set of routes (not when merely switching between them, and
   // not mid-drive, where the camera follows the driver instead).
@@ -740,6 +846,7 @@ function MapPage() {
   }
 
   function handleClearRoute() {
+    setShowRouteSteps(false)
     setPlan(null)
     setCorridor({ routeId: null, gems: [] })
     setRouteError('')
@@ -756,12 +863,35 @@ function MapPage() {
       {nav ? (
         <NavigationHud
           step={nav.step}
+          steps={nav.model.steps}
           status={nav.status}
           destinationName={nav.destinationName}
           muted={muted}
           onToggleMute={toggleMute}
           onEnd={endNavigation}
-        />
+        >
+          {/* Gem alerts stack under the banner (and any "Then" strip). */}
+          {gemAlert && (
+            <div className={'nav-gem-alert' + (gemAlert.type === 'passed' ? ' passed' : '')} role="status" aria-live="polite">
+              <span className="nav-gem-alert-icon">{CATEGORY_ICON[gemAlert.gem.category] ?? '📍'}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="nav-gem-alert-kicker">
+                  {gemAlert.type === 'approaching' ? `Hidden gem ahead · ${formatDistance(gemAlert.aheadM)}` : 'You just passed'}
+                </div>
+                <div className="nav-gem-alert-name">{gemAlert.gem.name}</div>
+                <div className="nav-gem-alert-sub">~{gemAlert.detourMin} min detour (estimate)</div>
+              </div>
+              {gemAlert.type === 'passed' &&
+                (savedIds.has(gemAlert.gem.id) ? (
+                  <span className="nav-gem-alert-saved">Saved</span>
+                ) : (
+                  <button className="nav-gem-alert-save" disabled={busy} onClick={() => handleToggleSave(gemAlert.gem.id)}>
+                    <Bookmark size={14} /> Save
+                  </button>
+                ))}
+            </div>
+          )}
+        </NavigationHud>
       ) : (
         <>
           <DestinationSearch
@@ -851,7 +981,7 @@ function MapPage() {
                           </span>
                           <span className="route-option-scores">
                             <span>Road {o.scores.roadQuality}</span>
-                            <span>Traffic {o.scores.traffic}</span>
+                            <span className={`traffic-${trafficByRoute.get(o.id)?.level}`}>{trafficByRoute.get(o.id)?.text}</span>
                             <span className={o.reportCount ? 'has-reports' : ''}>
                               {o.reportCount ? `${o.reportCount} report${o.reportCount === 1 ? '' : 's'}` : 'No reports'}
                             </span>
@@ -871,12 +1001,26 @@ function MapPage() {
                     </div>
                   )}
 
-                  <button
-                    className="map-route-start route-panel-start"
-                    onClick={() => startNavigation(selectedRoute, plan.destination, plan.destinationName)}
-                  >
-                    <Play size={14} fill="currentColor" /> Start · {routeLabel(selectedRoute)}
-                  </button>
+                  <div className="route-legend" aria-label="Route line colours">
+                    <span><i className="swatch" style={{ background: ROUTE_COLOR }} /> Clear</span>
+                    <span><i className="swatch" style={{ background: TRAFFIC_COLOR.SLOW }} /> Slow</span>
+                    <span><i className="swatch" style={{ background: TRAFFIC_COLOR.TRAFFIC_JAM }} /> Heavy traffic</span>
+                    <span><i className="swatch dotted" /> Road report</span>
+                  </div>
+
+                  <div className="route-panel-actions">
+                    <button
+                      className="map-route-start route-panel-start"
+                      onClick={() => startNavigation(selectedRoute, plan.destination, plan.destinationName)}
+                    >
+                      <Play size={14} fill="currentColor" /> Start · {routeLabel(selectedRoute)}
+                    </button>
+                    {selectedRoute.steps?.length > 0 && (
+                      <button className="route-panel-steps" onClick={() => setShowRouteSteps(true)}>
+                        <List size={15} /> Steps
+                      </button>
+                    )}
+                  </div>
                 </>
               )}
             </div>
@@ -884,25 +1028,12 @@ function MapPage() {
         </>
       )}
 
-      {nav && gemAlert && (
-        <div className={'nav-gem-alert' + (gemAlert.type === 'passed' ? ' passed' : '')} role="status" aria-live="polite">
-          <span className="nav-gem-alert-icon">{CATEGORY_ICON[gemAlert.gem.category] ?? '📍'}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="nav-gem-alert-kicker">
-              {gemAlert.type === 'approaching' ? `Hidden gem ahead · ${formatDistance(gemAlert.aheadM)}` : 'You just passed'}
-            </div>
-            <div className="nav-gem-alert-name">{gemAlert.gem.name}</div>
-            <div className="nav-gem-alert-sub">~{gemAlert.detourMin} min detour (estimate)</div>
-          </div>
-          {gemAlert.type === 'passed' &&
-            (savedIds.has(gemAlert.gem.id) ? (
-              <span className="nav-gem-alert-saved">Saved</span>
-            ) : (
-              <button className="nav-gem-alert-save" disabled={busy} onClick={() => handleToggleSave(gemAlert.gem.id)}>
-                <Bookmark size={14} /> Save
-              </button>
-            ))}
-        </div>
+      {!nav && showRouteSteps && selectedRoute?.steps?.length > 0 && (
+        <DirectionsList
+          steps={selectedRoute.steps}
+          destinationName={plan.destinationName}
+          onClose={() => setShowRouteSteps(false)}
+        />
       )}
 
       {!nav && !loading && position?.isFallback && (

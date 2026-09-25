@@ -63,11 +63,26 @@ const PENALTY_SCALE = 40
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
+// How much of a report's weight is left after ageing: 1 when fresh, halving
+// every HALF_LIFE_DAYS for its type.
+export function reportDecay(report: Pick<RoadReport, 'type' | 'ageDays'>): number {
+  return Math.pow(0.5, Math.max(0, report.ageDays) / HALF_LIFE_DAYS[report.type])
+}
+
 export function reportPenalty(report: RoadReport): number {
   const severity = clamp(report.severity, 1, 5) / 5
   const confidence = clamp(report.confidence ?? DEFAULT_CONFIDENCE, 0, 1)
-  const decay = Math.pow(0.5, Math.max(0, report.ageDays) / HALF_LIFE_DAYS[report.type])
-  return BASE_PENALTY[report.type] * severity * confidence * decay
+  return BASE_PENALTY[report.type] * severity * confidence * reportDecay(report)
+}
+
+// Below this much remaining weight a report no longer affects a route in any
+// way a driver would notice, so it isn't shown as an alert or painted on the
+// route: about 20 hours for an accident, a week for flooding, 200 days for a
+// pothole. (It still counts, negligibly, in the score.)
+export const RELEVANCE_FLOOR = 0.1
+
+export function isStillRelevant(report: Pick<RoadReport, 'type' | 'ageDays'>): boolean {
+  return reportDecay(report) >= RELEVANCE_FLOOR
 }
 
 function groupScore(reports: RoadReport[], types: ReportType[]): number {

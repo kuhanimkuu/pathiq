@@ -1,5 +1,6 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1'
 import {
+  isStillRelevant,
   labelRoutes,
   reportPenalty,
   scoreRoute,
@@ -105,4 +106,16 @@ Deno.test('a single route holds every label', () => {
 
 Deno.test('no routes gives no labels', () => {
   assertEquals(labelRoutes([]).size, 0)
+})
+
+Deno.test('old reports stop being shown once they have faded', () => {
+  // An accident matters for hours, not days.
+  assert(isStillRelevant({ type: 'incident', ageDays: 0.5 }))
+  assert(!isStillRelevant({ type: 'incident', ageDays: 2 }))
+  // Flooding for about a week.
+  assert(isStillRelevant({ type: 'flooding', ageDays: 5 }))
+  assert(!isStillRelevant({ type: 'flooding', ageDays: 8 }))
+  // A pothole for months.
+  assert(isStillRelevant({ type: 'pothole', ageDays: 150 }))
+  assert(!isStillRelevant({ type: 'pothole', ageDays: 250 }))
 })

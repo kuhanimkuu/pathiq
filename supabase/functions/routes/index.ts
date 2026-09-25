@@ -10,6 +10,7 @@ import { corsHeaders, json } from '../_shared/cors.ts'
 import { computeRoutes, type GoogleRoute, type LatLng } from '../_shared/google.ts'
 import { decodePolyline, toWkt } from '../_shared/polyline.ts'
 import {
+  isStillRelevant,
   labelRoutes,
   reportPenalty,
   scoreRoute,
@@ -199,6 +200,7 @@ Deno.serve(async (req) => {
   const tags = labelRoutes(scored.map((r) => ({ id: r.id, durationS: r.route.durationS, scores: r.scores })))
 
   const options = scored
+    .map((r) => ({ ...r, live: r.reports.filter(isStillRelevant) }))
     .map((r) => ({
       id: r.id,
       tags: tags.get(r.id) ?? [],
@@ -208,9 +210,18 @@ Deno.serve(async (req) => {
       encodedPolyline: r.route.encodedPolyline,
       steps: r.route.steps,
       scores: r.scores,
-      reportCount: r.reports.length,
-      // The worst problems on this route, for the UI to show.
-      alerts: [...r.reports]
+      // Only reports that still matter (see isStillRelevant): a two-day-old
+      // accident has faded out of the score, so it shouldn't be shown either.
+      reportCount: r.live.length,
+      // Every live report, for painting onto the route.
+      hazards: r.live.map(({ row }) => ({
+        id: row.id,
+        type: row.type,
+        severity: row.severity,
+        routeFraction: row.route_fraction,
+      })),
+      // The worst problems on this route, for the UI to list.
+      alerts: [...r.live]
         .sort((a, b) => reportPenalty(b) - reportPenalty(a))
         .slice(0, MAX_ALERTS)
         .map(({ row }) => ({

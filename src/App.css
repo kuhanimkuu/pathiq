@@ -841,12 +841,20 @@
   box-shadow: 0 0 0 8px rgba(0, 201, 167, 0.2);
 }
 
-.map-search-bar {
+/* Destination search (src/components/DestinationSearch.jsx): floating over
+   the map, or inline on the Routes tab. The results list hangs off the bar. */
+.dest-search { position: relative; }
+.dest-search.floating {
   position: absolute;
   top: 16px;
   left: 16px;
   right: 16px;
-  z-index: 10;
+  z-index: 25;
+}
+.dest-search.inline { margin-bottom: 20px; z-index: 5; }
+.dest-search.inline .map-search-bar { background: var(--card); box-shadow: none; }
+
+.map-search-bar {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1003,19 +1011,47 @@ html.light .map-alert {
   border-color: var(--primary);
 }
 
-/* ── Markers inside the Google map ──
-   AdvancedMarkerElement positions its content itself, anchored at the
-   bottom-centre, so the radar-era absolute positioning is undone here and
-   round pins are shifted down to sit centred on their point. */
-.map-canvas .map-pin,
-.map-canvas .map-user-dot {
-  position: relative;
-  transform: translateY(50%);
+/* Markers on the Google map are HtmlMarkers (src/lib/googleMaps.js): the
+   element's top-left is put on the point, and .map-pin / .map-user-dot /
+   .map-pin-destination translate themselves so their centre (or tip) sits on it. */
+
+/* ── Layer switcher ── */
+.map-layers {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.map-canvas .map-pin-destination {
-  position: relative;
-  transform: rotate(-45deg);
+.map-layer-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
+.map-layer-btn.active {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.map-pin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.map-pin-actions .map-route-here-btn { margin-top: 0; }
 
 .map-status {
   position: absolute;
@@ -1086,9 +1122,9 @@ html.light .map-alert {
 
 .map-search-results {
   position: absolute;
-  top: 64px;
-  left: 16px;
-  right: 16px;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
   z-index: 25;
   max-height: 340px;
   overflow-y: auto;
@@ -1480,3 +1516,72 @@ html.light .map-route-summary {
   font-size: 13px;
 }
 .app-content > .offline-banner { max-width: none; }
+
+/* ── Routes tab ── */
+.routes-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.routes-back:hover { color: var(--foreground); }
+
+.route-preview-map {
+  position: relative;
+  height: 280px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  margin-bottom: 16px;
+  background: var(--card);
+}
+
+.route-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.route-alert { font-size: 12px; color: var(--muted-foreground); }
+.route-alert-high { color: var(--red); }
+.route-alert-medium { color: var(--amber); }
+
+.section-title svg { vertical-align: -2px; margin-right: 4px; }
+
+.quick-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 4px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--foreground);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.quick-pick:last-child { border-bottom: none; }
+.quick-pick:hover .quick-pick-name { color: var(--primary); }
+.quick-pick-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: var(--secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+.quick-pick-name { font-size: 14px; font-weight: 500; }

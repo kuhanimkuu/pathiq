@@ -83,3 +83,10 @@ export function getCurrentPosition({ timeoutMs = 8000 } = {}) {
 
   return Promise.race([geolocationResult, hardTimeout])
 }
+
+// Saved gems with coordinates, newest first (for one-tap routing).
+export async function fetchSavedGems() {
+  const { data, error } = await supabase.rpc('my_saved_gems')
+  if (error) throw error
+  return data ?? []
+}

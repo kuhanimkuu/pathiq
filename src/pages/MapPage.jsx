@@ -1,18 +1,19 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { Search, X, Bookmark, Star, Navigation2, MapPin, Play, LocateOff } from 'lucide-react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { X, Bookmark, Star, Navigation2, Play, LocateOff, Gem, TriangleAlert, TrafficCone, MapPinPlus } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
 import { fetchNearbyGems, fetchSavedGemIds, saveGem, unsaveGem, confirmGem, getCurrentPosition } from '../lib/gems'
 import { fetchNearbyRoadReports, reportTypeLabel, severityBand } from '../lib/roadReports'
 import { planRoutes, fetchRouteCorridor, formatDuration, routeLabel } from '../lib/routePlanning'
-import { loadGoogleMaps, MAP_ID, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
-import { newSearchSession, searchPlaces, resolvePlace } from '../lib/placeSearch'
-import { buildNavModel, locate, progress, distanceM, spokenDistance, formatDistance } from '../lib/navigation'
+import { loadGoogleMaps, createPathiqMap, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
+import { buildNavModel, locate, progress, distanceM, spokenDistance, formatDistance, slicePath } from '../lib/navigation'
+import { CATEGORY_ICON, INCIDENT_ICON } from '../lib/icons'
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip'
 import { startTrip, endTrip, recordReroute, recordGemEvent } from '../lib/trips'
 import { loadAlertPrefs, detourMinutes, corridorForDetour } from '../lib/alertPrefs'
 import { holdWakeLock, notifyIfHidden } from '../lib/driveAssist'
 import NavigationHud from '../components/NavigationHud'
+import DestinationSearch from '../components/DestinationSearch'
 
 const RADIUS_M = 5000
 const NAV_ZOOM = 17
@@ -25,11 +26,6 @@ const GEM_AHEAD_M = 600 // "approaching" alert when a gem is this close ahead on
 const GEM_PASSED_MIN_M = 20 // "just passed" alert once it's this far behind…
 const GEM_PASSED_MAX_M = 400 // …and not later than this
 const GEM_ALERT_MS = 10_000
-
-const CATEGORY_ICON = {
-  attractions: '🎯', hotels: '🏨', food: '🍽️', scenic: '🌄', fuel: '⛽', facilities: '🏢',
-}
-const INCIDENT_ICON = { pothole: '🕳️', flooding: '🌊', construction: '🚧', surface: '🛣️', incident: '⚠️' }
 
 const categories = [
   { value: 'attractions', label: 'Attractions' },
@@ -46,7 +42,11 @@ const ROUTE_COLOR = '#00C9A7'
 const ALT_ROUTE_COLOR = '#7A8C88'
 
 const MUTE_KEY = 'pathiq-nav-muted'
-const MIN_PLACE_QUERY = 3
+
+// Road reports painted onto the route: this far either side of the report,
+// in the report's severity colour (mirrors --red / --amber / --blue).
+const REPORT_STRETCH_M = 120
+const SEVERITY_COLOR = { high: '#EF4444', medium: '#F59E0B', low: '#3B82F6' }
 
 // `?to=lat,lng&name=…&route=…&nav=1` plans a route on arrival (and starts
 // navigating with nav=1) — used by the Routes tab and Home's "Resume".
@@ -86,6 +86,8 @@ function readMuted() {
 function MapPage() {
   const { user, session, profile } = useAuth()
   const userId = user?.id
+  const isScout = profile?.role === 'scout' || profile?.role === 'admin'
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const urlPlan = useRef(parseUrlPlan(searchParams))
 
@@ -102,14 +104,14 @@ function MapPage() {
   const [selected, setSelected] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  const [query, setQuery] = useState('')
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [placeResults, setPlaceResults] = useState({ query: '', items: [] })
-  const [searchError, setSearchError] = useState('')
-  const searchSessionRef = useRef(null)
+  // Tapping the map drops a pin (with Route here / Scout actions) rather than
+  // planning straight away: a stray tap shouldn't spend a Google Routes call.
+  const [dropped, setDropped] = useState(null) // { lat, lng }
+  // PathIQ's layers, toggled from the map. Traffic is Google's live layer.
+  const [layers, setLayers] = useState({ gems: true, reports: true, traffic: false })
 
   const [plan, setPlan] = useState(null) // { destination, destinationName, options, selectedId }
-  const [corridor, setCorridor] = useState({ routeId: null, gems: [], reports: [] })
+  const [corridor, setCorridor] = useState({ routeId: null, gems: [] })
   // Read once per visit: they're changed on the Profile page.
   const [alertPrefs] = useState(loadAlertPrefs)
   const [routing, setRouting] = useState(false)
@@ -193,6 +195,7 @@ function MapPage() {
       setRouteError('')
       setRouting(true)
       setSelected(null)
+      setDropped(null)
       try {
         const options = await planRoutes(position, destination)
         const option = options.find((o) => o.id === preferredRouteId) ?? options[0]
@@ -278,7 +281,7 @@ function MapPage() {
     }
     setNavError('')
     setSelected(null)
-    setQuery('')
+    setDropped(null)
     saveActiveTrip(tripRecord(next, step))
     speak(`Starting route to ${destinationName}.`)
     const map = mapRef.current
@@ -436,20 +439,11 @@ function MapPage() {
     loadGoogleMaps()
       .then((api) => {
         if (cancelled || !mapDivRef.current) return
-        const light = document.documentElement.classList.contains('light')
-        const map = new api.Map(mapDivRef.current, {
-          center: position,
-          zoom: 14,
-          mapId: MAP_ID,
-          colorScheme: light ? 'LIGHT' : 'DARK',
-          disableDefaultUI: true,
-          zoomControl: true,
-          clickableIcons: false,
-          gestureHandling: 'greedy',
-        })
+        const map = createPathiqMap(api, mapDivRef.current, { center: position, zoom: 14 })
         map.addListener('click', (e) => {
           if (latest.current.nav) return // no re-planning mid-drive
-          latest.current.planTo({ lat: e.latLng.lat(), lng: e.latLng.lng() })
+          setSelected(null)
+          setDropped({ lat: e.latLng.lat(), lng: e.latLng.lng() })
         })
         mapsApiRef.current = api
         mapRef.current = map
@@ -516,73 +510,23 @@ function MapPage() {
     return () => clearTimeout(timer)
   }, [gemAlertKey])
 
-  // Place suggestions, debounced. Gem matches come from what's already loaded.
-  const positionRef = useRef(position)
-  useEffect(() => {
-    positionRef.current = position
-  }, [position])
-  useEffect(() => {
-    const q = query.trim()
-    // Places Autocomplete is billed per request on the browser key, which can't
-    // be rate-limited server-side — so search only from 3 characters, and only
-    // once typing pauses. (Set a per-day quota on the key in Cloud Console too.)
-    if (q.length < MIN_PLACE_QUERY || !mapReady) return
-    let cancelled = false
-    const timer = setTimeout(async () => {
-      try {
-        searchSessionRef.current ??= await newSearchSession()
-        const near = positionRef.current && { lat: positionRef.current.lat, lng: positionRef.current.lng }
-        const items = await searchPlaces(q, near, searchSessionRef.current)
-        if (!cancelled) {
-          setPlaceResults({ query: q, items })
-          setSearchError('')
-        }
-      } catch (err) {
-        if (!cancelled) setSearchError(err.message)
-      }
-    }, 350)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [query, mapReady])
-
-  const trimmedQuery = query.trim()
-  const gemMatches = useMemo(() => {
-    if (!trimmedQuery) return []
-    const q = trimmedQuery.toLowerCase()
-    return gems.filter((g) => g.name.toLowerCase().includes(q)).slice(0, 3)
-  }, [gems, trimmedQuery])
-
-  function closeSearch() {
-    setQuery('')
-    setSearchOpen(false)
-    searchSessionRef.current = null // the session ends with a selection
-  }
-
   function handlePickGem(gem) {
-    closeSearch()
+    setDropped(null)
     setSelected({ type: 'gem', id: gem.id })
     mapRef.current?.panTo({ lat: gem.lat, lng: gem.lng })
   }
 
-  async function handlePickPlace(item) {
-    closeSearch()
-    try {
-      const place = await resolvePlace(item)
-      planTo({ lat: place.lat, lng: place.lng }, place.name)
-    } catch (err) {
-      setRouteError(err.message)
-    }
-  }
-
   const visibleGems = useMemo(
-    () => gems.filter((g) => activeCategories.size === 0 || activeCategories.has(g.category)),
-    [gems, activeCategories],
+    () =>
+      layers.gems ? gems.filter((g) => activeCategories.size === 0 || activeCategories.has(g.category)) : [],
+    [gems, activeCategories, layers.gems],
   )
+  const visibleIncidents = useMemo(() => (layers.reports ? incidents : []), [incidents, layers.reports])
 
   const routeGemIds = useMemo(() => new Set((plan ? corridor.gems : []).map((g) => g.id)), [plan, corridor])
-  const routeReportIds = useMemo(() => new Set((plan ? corridor.reports : []).map((r) => r.id)), [plan, corridor])
+  // Reports that still matter on the selected route, as judged by the routes
+  // edge function (old ones fade out — see isStillRelevant in scoring.ts).
+  const routeReportIds = useMemo(() => new Set((selectedRoute?.hazards ?? []).map((h) => h.id)), [selectedRoute])
 
   // The driver's dot: one marker, moved as GPS updates arrive.
   const userMarkerRef = useRef(null)
@@ -593,9 +537,9 @@ function MapPage() {
       const dot = document.createElement('div')
       dot.className = 'map-user-dot'
       dot.setAttribute('aria-label', 'Your location')
-      userMarkerRef.current = new api.AdvancedMarkerElement({ map: mapRef.current, position, content: dot, zIndex: 30 })
+      userMarkerRef.current = new api.HtmlMarker({ map: mapRef.current, position, content: dot, zIndex: 30 })
     } else {
-      userMarkerRef.current.position = position
+      userMarkerRef.current.setPosition(position)
     }
   }, [mapReady, position])
 
@@ -606,7 +550,7 @@ function MapPage() {
     if (!mapReady || !map || !api) return
     const markers = []
     const add = (latLng, content, zIndex, onClick) => {
-      const marker = new api.AdvancedMarkerElement({ map, position: latLng, content, zIndex })
+      const marker = new api.HtmlMarker({ map, position: latLng, content, zIndex })
       if (onClick) {
         content.addEventListener('click', (e) => {
           e.stopPropagation()
@@ -627,7 +571,7 @@ function MapPage() {
       add({ lat: gem.lat, lng: gem.lng }, el, onRoute ? 20 : 10, () => setSelected({ type: 'gem', id: gem.id }))
     }
 
-    for (const incident of incidents) {
+    for (const incident of visibleIncidents) {
       const band = severityBand(incident.severity)
       const onRoute = routeReportIds.has(incident.id)
       const el = pinElement(
@@ -646,15 +590,49 @@ function MapPage() {
       )
     }
 
-    if (plan) {
+    const pin = plan?.destination ?? dropped
+    if (pin) {
       const dest = document.createElement('div')
       dest.className = 'map-pin-destination'
-      dest.setAttribute('aria-label', 'Destination')
-      add(plan.destination, dest, 25)
+      dest.setAttribute('aria-label', plan ? 'Destination' : 'Dropped pin')
+      add(pin, dest, 25)
     }
 
-    return () => markers.forEach((m) => (m.map = null))
-  }, [mapReady, visibleGems, incidents, routeGemIds, routeReportIds, plan])
+    return () => markers.forEach((m) => m.setMap(null))
+  }, [mapReady, visibleGems, visibleIncidents, routeGemIds, routeReportIds, plan, dropped])
+
+  // Google's live traffic, as an optional layer under ours.
+  const trafficRef = useRef(null)
+  useEffect(() => {
+    const api = mapsApiRef.current
+    if (!mapReady || !api) return
+    trafficRef.current ??= new api.TrafficLayer()
+    trafficRef.current.setMap(layers.traffic ? mapRef.current : null)
+  }, [mapReady, layers.traffic])
+
+  // PathIQ's road intelligence drawn onto the route itself: the stretch around
+  // each live report on the selected route, in its severity colour.
+  useEffect(() => {
+    const api = mapsApiRef.current
+    if (!mapReady || !api || !selectedRoute?.hazards?.length || !layers.reports) return
+    const model = buildNavModel(selectedRoute)
+    const lines = selectedRoute.hazards
+      .map((report) => {
+        const s = report.routeFraction * model.total
+        const stretch = slicePath(model, s - REPORT_STRETCH_M, s + REPORT_STRETCH_M)
+        if (stretch.length < 2) return null
+        return new api.Polyline({
+          map: mapRef.current,
+          path: stretch,
+          strokeColor: SEVERITY_COLOR[severityBand(report.severity)],
+          strokeOpacity: 0.95,
+          strokeWeight: 8,
+          zIndex: 3,
+        })
+      })
+      .filter(Boolean)
+    return () => lines.forEach((l) => l.setMap(null))
+  }, [mapReady, selectedRoute, layers.reports])
 
   // Route lines: every alternative, the selected one on top and in colour.
   // Tapping a grey alternative selects it. While navigating, only the route
@@ -736,12 +714,10 @@ function MapPage() {
 
   function handleClearRoute() {
     setPlan(null)
-    setCorridor({ routeId: null, gems: [], reports: [] })
+    setCorridor({ routeId: null, gems: [] })
     setRouteError('')
   }
 
-  const tooShortForPlaces = trimmedQuery.length < MIN_PLACE_QUERY
-  const placesPending = !tooShortForPlaces && placeResults.query !== trimmedQuery && !searchError
 
   return (
     <div className="map-page">
@@ -761,58 +737,40 @@ function MapPage() {
         />
       ) : (
         <>
-          <div className="map-search-bar">
-            <Search size={16} color="var(--muted-foreground)" />
-            <input
-              placeholder="Search for a place or gem, or tap the map…"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-                setSearchOpen(true)
-              }}
-              onFocus={() => setSearchOpen(true)}
-              onBlur={() => setSearchOpen(false)}
-              onKeyDown={(e) => e.key === 'Escape' && closeSearch()}
-              aria-label="Search for a destination"
-            />
-            {query && (
-              <button className="map-search-clear" onMouseDown={(e) => e.preventDefault()} onClick={closeSearch} aria-label="Clear search">
-                <X size={14} />
-              </button>
-            )}
-          </div>
+          <DestinationSearch
+            gems={gems}
+            near={position}
+            placeholder="Where to? Search a place or gem, or tap the map…"
+            onPickGem={handlePickGem}
+            onPickPlace={(place) => planTo({ lat: place.lat, lng: place.lng }, place.name)}
+          />
 
-          {searchOpen && trimmedQuery && (
-            // mousedown is swallowed so picking a result doesn't blur the
-            // input (and close the list) before the click lands.
-            <div className="map-search-results" onMouseDown={(e) => e.preventDefault()}>
-              {gemMatches.map((gem) => (
-                <button key={gem.id} className="map-search-result" onClick={() => handlePickGem(gem)}>
-                  <span className="map-search-result-icon">{CATEGORY_ICON[gem.category] ?? '📍'}</span>
-                  <span>
-                    <span className="map-search-result-title">{gem.name}</span>
-                    <span className="map-search-result-sub">PathIQ gem · {(gem.distance_m / 1000).toFixed(1)} km away</span>
-                  </span>
-                </button>
-              ))}
-              {placeResults.query === trimmedQuery &&
-                placeResults.items.map((item) => (
-                  <button key={item.id} className="map-search-result" onClick={() => handlePickPlace(item)}>
-                    <span className="map-search-result-icon"><MapPin size={15} /></span>
-                    <span>
-                      <span className="map-search-result-title">{item.title}</span>
-                      <span className="map-search-result-sub">{item.subtitle}</span>
-                    </span>
-                  </button>
-                ))}
-              {placesPending && <div className="map-search-note">Searching…</div>}
-              {searchError && <div className="map-search-note">{searchError}</div>}
-              {tooShortForPlaces && gemMatches.length === 0 && <div className="map-search-note">Keep typing…</div>}
-              {!tooShortForPlaces && !placesPending && !searchError && gemMatches.length === 0 && placeResults.items.length === 0 && (
-                <div className="map-search-note">No places found.</div>
-              )}
-            </div>
-          )}
+          <div className="map-layers" role="group" aria-label="Map layers">
+            <button
+              className={'map-layer-btn' + (layers.gems ? ' active' : '')}
+              onClick={() => setLayers((l) => ({ ...l, gems: !l.gems }))}
+              aria-pressed={layers.gems}
+              title="Hidden Gems"
+            >
+              <Gem size={16} />
+            </button>
+            <button
+              className={'map-layer-btn' + (layers.reports ? ' active' : '')}
+              onClick={() => setLayers((l) => ({ ...l, reports: !l.reports }))}
+              aria-pressed={layers.reports}
+              title="Road reports"
+            >
+              <TriangleAlert size={16} />
+            </button>
+            <button
+              className={'map-layer-btn' + (layers.traffic ? ' active' : '')}
+              onClick={() => setLayers((l) => ({ ...l, traffic: !l.traffic }))}
+              aria-pressed={layers.traffic}
+              title="Live traffic"
+            >
+              <TrafficCone size={16} />
+            </button>
+          </div>
 
           <div className="map-filter-row">
             {categories.map((c) => (
@@ -841,8 +799,10 @@ function MapPage() {
                       score {selectedRoute.scores.roadQuality}
                     </div>
                     <div style={{ fontSize: 11.5, color: 'var(--muted-foreground)', marginTop: 2 }}>
-                      {corridor.gems.length} gem{corridor.gems.length === 1 ? '' : 's'} and {corridor.reports.length} road report
-                      {corridor.reports.length === 1 ? '' : 's'} along the way, highlighted in amber.
+                      {corridor.gems.length} gem{corridor.gems.length === 1 ? '' : 's'} along the way
+                      {selectedRoute.reportCount > 0
+                        ? ` · ${selectedRoute.reportCount} road report${selectedRoute.reportCount === 1 ? '' : 's'}, painted on the route`
+                        : ' · no current road reports on this route'}
                     </div>
                     {plan.options.length > 1 && (
                       <div className="map-route-options">
@@ -920,6 +880,42 @@ function MapPage() {
         <p className="auth-error map-floating-error" style={{ top: nav ? 124 : plan || routing ? 256 : 108 }}>
           {navError || error}
         </p>
+      )}
+
+      {!nav && dropped && !selectedGem && !selectedIncident && (
+        <>
+          <button className="map-sheet-handle" onClick={() => setDropped(null)} aria-label="Close">
+            <X size={16} />
+          </button>
+          <div className="map-sheet">
+            <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>Dropped pin</div>
+            <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 2 }}>
+              {dropped.lat.toFixed(5)}, {dropped.lng.toFixed(5)}
+              {position ? ` · ${(distanceM(position, dropped) / 1000).toFixed(1)} km away` : ''}
+            </div>
+            <div className="map-pin-actions">
+              <button className="map-route-start" disabled={routing} onClick={() => planTo(dropped, 'Dropped pin')}>
+                <Navigation2 size={13} /> Route here
+              </button>
+              {isScout && (
+                <>
+                  <button
+                    className="map-route-here-btn"
+                    onClick={() => navigate(`/app/scout?form=report&lat=${dropped.lat.toFixed(6)}&lng=${dropped.lng.toFixed(6)}`)}
+                  >
+                    <TriangleAlert size={13} /> Report a road issue here
+                  </button>
+                  <button
+                    className="map-route-here-btn"
+                    onClick={() => navigate(`/app/scout?form=gem&lat=${dropped.lat.toFixed(6)}&lng=${dropped.lng.toFixed(6)}`)}
+                  >
+                    <MapPinPlus size={13} /> Add a gem here
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {(selectedGem || selectedIncident) && (

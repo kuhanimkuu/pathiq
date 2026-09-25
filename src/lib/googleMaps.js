@@ -1,13 +1,11 @@
+import { mapStyles, currentTheme } from './mapStyle'
+
 // Loads the Google Maps JavaScript API once, on demand. The key is a browser
 // key (VITE_GOOGLE_MAPS_API_KEY) and is visible to anyone, so it must be
 // restricted by HTTP referrer in Cloud Console. Routing never uses it — that
 // goes through the `routes` edge function and its server-side key.
 
 const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
-
-// Google's demo map ID: enables Advanced Markers and light/dark color schemes
-// without creating a Cloud-styled map. Swap for a real map ID to customise.
-export const MAP_ID = 'DEMO_MAP_ID'
 
 // Google calls gm_authFailure when the key is invalid or the referrer isn't
 // allowed — usually *after* the script has loaded and a map was created, so it
@@ -31,13 +29,14 @@ export function loadGoogleMaps() {
     }
     window.__pathiqMapsReady = async () => {
       try {
-        const [maps, marker, core, places] = await Promise.all([
+        const [maps, core, places] = await Promise.all([
           window.google.maps.importLibrary('maps'),
-          window.google.maps.importLibrary('marker'),
           window.google.maps.importLibrary('core'),
           window.google.maps.importLibrary('places'),
         ])
-        resolve({ ...core, ...maps, ...marker, ...places })
+        const api = { ...core, ...maps, ...places }
+        api.HtmlMarker = defineHtmlMarker(api)
+        resolve(api)
       } catch (err) {
         reject(err)
       }
@@ -55,4 +54,56 @@ export function loadGoogleMaps() {
     document.head.appendChild(script)
   })
   return loading
+}
+
+// A map in PathIQ's own style (src/lib/mapStyle.js), for the current theme.
+export function createPathiqMap(api, element, options) {
+  return new api.Map(element, {
+    styles: mapStyles(currentTheme()),
+    backgroundColor: currentTheme() === 'light' ? '#F4F7F6' : '#0A1512',
+    disableDefaultUI: true,
+    zoomControl: true,
+    clickableIcons: false,
+    gestureHandling: 'greedy',
+    ...options,
+  })
+}
+
+// Our markers: any DOM element, positioned on the map with its centre on the
+// point (CSS decides the exact anchor — see .map-pin in App.css). Built on
+// OverlayView rather than AdvancedMarkerElement, because Advanced Markers need
+// a Cloud map ID, which rules out styling the map from code.
+function defineHtmlMarker(api) {
+  return class HtmlMarker extends api.OverlayView {
+    constructor({ map, position, content, zIndex = 1 }) {
+      super()
+      this.position = position
+      this.content = content
+      content.style.position = 'absolute'
+      content.style.zIndex = String(zIndex)
+      // Taps on a marker shouldn't also count as a tap on the map underneath.
+      api.OverlayView.preventMapHitsAndGesturesFrom(content)
+      this.setMap(map)
+    }
+
+    onAdd() {
+      this.getPanes().overlayMouseTarget.appendChild(this.content)
+    }
+
+    draw() {
+      const point = this.getProjection()?.fromLatLngToDivPixel(new api.LatLng(this.position))
+      if (!point) return
+      this.content.style.left = `${point.x}px`
+      this.content.style.top = `${point.y}px`
+    }
+
+    onRemove() {
+      this.content.remove()
+    }
+
+    setPosition(position) {
+      this.position = position
+      this.draw()
+    }
+  }
 }

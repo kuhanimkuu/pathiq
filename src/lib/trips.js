@@ -48,3 +48,10 @@ export async function fetchDriverStats() {
   if (error) throw error
   return { tripsThisMonth: data[0]?.trips_this_month ?? 0, gemsFound: data[0]?.gems_found ?? 0 }
 }
+
+// Where the driver has navigated recently — one-tap destinations on Routes.
+export async function fetchRecentDestinations(limit = 5) {
+  const { data, error } = await supabase.rpc('my_recent_destinations', { p_limit: limit })
+  if (error) throw error
+  return data ?? []
+}

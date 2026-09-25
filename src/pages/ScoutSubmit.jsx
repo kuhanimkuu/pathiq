@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { submitRoadReport, submitGem, uploadScoutPhoto } from '../lib/scouts'
 import { getCurrentPosition } from '../lib/gems'
@@ -24,7 +25,9 @@ function LocationField({ position, locating, onLocate }) {
   return (
     <div className="location-status">
       {position
-        ? `Location: ${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}${position.isFallback ? ' (fallback — check GPS access)' : ''}`
+        ? `Location: ${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}${
+            position.fromMap ? ' (picked on the map)' : position.isFallback ? ' (fallback — check GPS access)' : ''
+          }`
         : 'Location not captured yet.'}{' '}
       <button type="button" className="auth-link" onClick={onLocate} disabled={locating}>
         {locating ? 'Locating…' : position ? 'Update location' : 'Use current location'}
@@ -53,14 +56,25 @@ function PhotoField({ file, onChange }) {
   )
 }
 
+// "Report a road issue here" / "Add a gem here" on the map's dropped pin
+// arrive as ?form=report|gem&lat=…&lng=… with the spot already chosen.
+function pinFromUrl(params) {
+  const lat = Number(params.get('lat'))
+  const lng = Number(params.get('lng'))
+  if (!params.get('lat') || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  return { lat, lng, isFallback: false, fromMap: true }
+}
+
 function Scout() {
   const { session, profile } = useAuth()
   const userId = session?.user?.id
-  const [form, setForm] = useState('report') // 'report' | 'gem'
+  const [searchParams] = useSearchParams()
+  const [mapPin] = useState(() => pinFromUrl(searchParams))
+  const [form, setForm] = useState(searchParams.get('form') === 'gem' ? 'gem' : 'report') // 'report' | 'gem'
 
   const [reportType, setReportType] = useState('pothole')
   const [severity, setSeverity] = useState(3)
-  const [reportPosition, setReportPosition] = useState(null)
+  const [reportPosition, setReportPosition] = useState(mapPin)
   const [reportLocating, setReportLocating] = useState(false)
   const [reportSubmitting, setReportSubmitting] = useState(false)
   const [reportError, setReportError] = useState('')
@@ -68,7 +82,7 @@ function Scout() {
   const [reportPhoto, setReportPhoto] = useState(null)
 
   const [gemCategory, setGemCategory] = useState('food')
-  const [gemPosition, setGemPosition] = useState(null)
+  const [gemPosition, setGemPosition] = useState(mapPin)
   const [gemLocating, setGemLocating] = useState(false)
   const [gemSubmitting, setGemSubmitting] = useState(false)
   const [gemError, setGemError] = useState('')

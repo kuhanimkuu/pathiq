@@ -41,7 +41,24 @@ export function buildNavModel(route) {
   let acc = 0
   const stepEnds = steps.map((st) => (acc += (st.distanceM * total) / stepSum))
 
-  return { lat0, pts, cum, total, steps, stepEnds, durationS: route.durationS, destination: path[path.length - 1] }
+  return { lat0, path, pts, cum, total, steps, stepEnds, durationS: route.durationS, destination: path[path.length - 1] }
+}
+
+// The stretch of the route between two distances along it, as [{ lat, lng }],
+// e.g. to paint the road around a report. Clamped to the route's ends.
+export function slicePath(model, fromS, toS) {
+  const { path, cum, total } = model
+  const a = Math.max(0, fromS)
+  const b = Math.min(total, toS)
+  if (b <= a) return []
+  const at = (s) => {
+    let i = cum.findIndex((c) => c >= s)
+    if (i <= 0) return path[Math.max(0, i)]
+    const t = (s - cum[i - 1]) / (cum[i] - cum[i - 1] || 1)
+    return { lat: path[i - 1].lat + t * (path[i].lat - path[i - 1].lat), lng: path[i - 1].lng + t * (path[i].lng - path[i - 1].lng) }
+  }
+  const inner = path.filter((_, i) => cum[i] > a && cum[i] < b)
+  return [at(a), ...inner, at(b)]
 }
 
 // Snap `pos` onto the route, searching forward from the last known progress.

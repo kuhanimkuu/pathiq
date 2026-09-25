@@ -107,6 +107,21 @@ try {
   r = await req(B.token, 'POST', '/rest/v1/rpc/my_driver_stats', {})
   ok("B's stats don't include A's", r.json[0].trips_this_month === 0 && r.json[0].gems_found === 0, JSON.stringify(r.json))
 
+  // quick picks on the Routes tab
+  r = await req(A.token, 'POST', '/rest/v1/rpc/my_recent_destinations', { p_limit: 5 })
+  ok('A sees own recent destination', Array.isArray(r.json) && r.json.length === 1 && r.json[0].name === 'Test', JSON.stringify(r.json))
+  r = await req(B.token, 'POST', '/rest/v1/rpc/my_recent_destinations', { p_limit: 5 })
+  ok("B doesn't see A's recent destinations", Array.isArray(r.json) && r.json.length === 0, JSON.stringify(r.json))
+  await req(A.token, 'POST', '/rest/v1/saved_gems', { user_id: A.id, gem_id: gem.id })
+  r = await req(A.token, 'POST', '/rest/v1/rpc/my_saved_gems', {})
+  ok('A sees own saved gem with coordinates', r.json?.length === 1 && typeof r.json[0].lat === 'number', JSON.stringify(r.json))
+  r = await req(B.token, 'POST', '/rest/v1/rpc/my_saved_gems', {})
+  ok("B doesn't see A's saved gems", Array.isArray(r.json) && r.json.length === 0, JSON.stringify(r.json))
+  for (const fn of ['my_recent_destinations', 'my_saved_gems']) {
+    r = await req(null, 'POST', `/rest/v1/rpc/${fn}`, {})
+    ok(`anon cannot call ${fn}`, r.status >= 400, `${r.status}`)
+  }
+
   // ── Scout submissions and photos ──
   r = await req(B.token, 'POST', '/rest/v1/road_reports', { type: 'pothole', severity: 3, location: point, reported_by: B.id })
   ok('non-Scouts cannot submit road reports', r.status >= 400, `${r.status}`)

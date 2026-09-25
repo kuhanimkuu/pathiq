@@ -1,13 +1,13 @@
 import { supabase } from './supabase'
 
 // Real driving routes: the `routes` edge function asks Google for alternatives
-// (server-side key), scores each against verified road reports, and tags them
-// Recommended / Fastest / Best Road — see supabase/functions/routes/index.ts.
-// The gem corridor isn't part of that response, so it's fetched here for
-// whichever route the driver is looking at, using the real road geometry.
+// (server-side key), scores each against verified road reports, tags them
+// Recommended / Fastest / Best Road, and lists each route's live reports
+// (`hazards`) — see supabase/functions/routes/index.ts. The gem corridor isn't
+// part of that response, so it's fetched here for whichever route the driver
+// is looking at, using the real road geometry.
 
 const GEM_CORRIDOR_M = 400
-const REPORT_CORRIDOR_M = 50 // same as the edge function, so counts agree
 
 export const ROUTE_TAG_LABEL = { recommended: 'Recommended', fastest: 'Fastest', best_road: 'Best Road' }
 
@@ -20,14 +20,12 @@ export async function planRoutes(origin, destination) {
 }
 
 export async function fetchRouteCorridor(path, { gemCorridorM = GEM_CORRIDOR_M } = {}) {
-  const wkt = toWkt(path)
-  const [{ data: gems, error: gemsError }, { data: reports, error: reportsError }] = await Promise.all([
-    supabase.rpc('gems_along_route', { route_wkt: wkt, corridor_m: Math.max(GEM_CORRIDOR_M, gemCorridorM) }),
-    supabase.rpc('road_reports_along_route', { route_wkt: wkt, corridor_m: REPORT_CORRIDOR_M }),
-  ])
-  if (gemsError) throw gemsError
-  if (reportsError) throw reportsError
-  return { gems: gems ?? [], reports: reports ?? [] }
+  const { data, error } = await supabase.rpc('gems_along_route', {
+    route_wkt: toWkt(path),
+    corridor_m: Math.max(GEM_CORRIDOR_M, gemCorridorM),
+  })
+  if (error) throw error
+  return { gems: data ?? [] }
 }
 
 export function formatDuration(seconds) {

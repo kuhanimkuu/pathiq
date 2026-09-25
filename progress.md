@@ -2,7 +2,7 @@
 
 A snapshot of where things stand, for picking this up again on this machine or another. For the product vision and longer-term plan, see `description.md`, `features.md`, `architecture.md` and `design-brief.md`. This file is the "where are we right now" summary.
 
-Last updated: 2026-09-26.
+Last updated: 2026-09-27.
 
 ---
 
@@ -26,17 +26,19 @@ What's left is mostly **decisions and accounts only David's team can set up** (s
    - then delete the demo key, which has also been pasted into a chat.
 2. **Email.** Email confirmation is off on the hosted project. Turning it on needs **custom SMTP** first (Supabase's built-in mailer only sends to team members). Details are in `supabase/README.md`.
 3. **Legal.** `/privacy` and `/terms` are a plain-language first draft that matches what the code does. They need a lawyer's review (Kenya Data Protection Act 2019) and a contact address (`CONTACT` in `src/pages/marketing/LegalPages.jsx`).
-4. **Seed data.** 11 gems and 3 road reports. `features.md` wants 50–100 verified gems, which means real places checked by real people, the Scout workflow's job. Seed coordinates are approximate.
-5. **Optional hardening.** Add a CAPTCHA (Cloudflare Turnstile) on guest sign-up, and set a custom map ID for a branded map style.
+4. **Seed data.** 11 gems and 3 road reports. Their coordinates are approximate, so none of the 3 reports sits on an actual road, and the one accident is days old. Routes currently show no road reports until real ones come in from Scouts. A temporary on-road pothole was used to verify the painting and the re-ranking: Best Road avoided it. `features.md` wants 50–100 verified gems, which means real places checked by real people, the Scout workflow's job.
+5. **Optional.** Add a CAPTCHA (Cloudflare Turnstile) on guest sign-up. For vector-map features (tilt, heading-up navigation), create a Cloud map ID and copy `src/lib/mapStyle.js` into a Cloud-based style.
 
 ## What's live
 
 **Hosted Supabase project** `nabzfpbpfmcjbbwsxiob`, linked. All migrations applied. `routes` edge function deployed with the Google key. Repo: `https://github.com/loisegakii/pathiq-navigators` (a different account from the git user on this machine).
 
 **Driver app (`/app/*`), no login wall.** A guest session starts silently (`RequireSession`).
-- **Map:** real Google map (dark or light), gems and road-report markers, category filters, gem details with save/rate. Shows a notice when location is off.
+- **Map:** Google streets in **PathIQ's own style** (`src/lib/mapStyle.js`). Google's shop, hospital and bus-stop pins are hidden, so PathIQ's layers stand out. A layer switcher toggles Gems, Road reports and Google live traffic. Tapping the map drops a pin with "Route here", plus, for Scouts, "Report a road issue here" and "Add a gem here" (these open the Scout form with the spot filled in). Gem details with save/rate. Shows a notice when location is off.
+- **How to add a new kind of PathIQ data to the map:** a Supabase table (+ RLS) and a query, then a layer in `MapPage.jsx` drawn with `api.HtmlMarker` (points) or `api.Polyline` (lines), plus a toggle in the layer switcher. Gems and road reports both follow this pattern.
 - **Search:** Google Places (New) suggestions limited to Kenya plus matching PathIQ gems. Searches start at 3 characters.
-- **Routes:** the `routes` edge function returns Google alternatives scored against verified road reports, tagged Recommended / Fastest / Best Road. They're compared on the map and on `/app/routes`.
+- **Routes:** the `routes` edge function returns Google alternatives scored against verified road reports, tagged Recommended / Fastest / Best Road. Live reports on each route (`hazards`) are **painted onto the route** in their severity colour. Reports that have faded (e.g. an accident older than about 20 h) are neither painted nor listed; see `isStillRelevant` in `scoring.ts`.
+- **Routes tab (`/app/routes`):** "Where to?" with search, **recent destinations** and **saved gems** as one-tap picks. Then a route map preview, score cards with the problems on each route, and Start navigation.
 - **Navigation:** turn-by-turn from Google's steps, GPS snapped to the route line (`src/lib/navigation.js`), voice with mute, reroute after 3 fixes more than 50 m off route, arrival within 40 m. The screen stays on (Wake Lock).
 - **Gem alerts:** "Hidden gem ahead" within 600 m, and "You just passed" with a Save button. Filtered by category and max detour (Profile settings). Once per gem per trip, voiced, and a system notification if the app is in the background and notifications are on.
 - **Trips:** recorded in `trips` (summary only, no GPS trail). A trigger recomputes `iq_score` when a trip ends: 50% road quality of the routes chosen, 30% trips completed, 20% staying on route, over the last 30 days. Home and Profile show real "Trips this month" and "Gems found" (`my_driver_stats`).
@@ -52,7 +54,7 @@ What's left is mostly **decisions and accounts only David's team can set up** (s
 - RLS on every table, with trips locked down so the IQ Score can't be gamed by editing rows.
 - Photo ownership checks.
 - Rate limits on routes (per user, per IP, and a global Google budget), trip starts, submissions and uploads.
-- `npm run test:security` passes 50/50 against the hosted project.
+- `npm run test:security` passes 56/56 against the hosted project.
 
 ## Not built
 

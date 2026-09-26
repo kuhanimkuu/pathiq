@@ -39,6 +39,7 @@ Deno.test('flattens steps; first line is the instruction, the rest is detail', (
     durationS: 16,
     start: { lat: -1.2863739, lng: 36.8171742 },
     end: { lat: -1.2866999, lng: 36.8175649 },
+    leg: 0,
   })
   assertEquals(steps[1].maneuver, 'TURN_RIGHT')
   assertEquals(steps[1].detail, '')
@@ -47,9 +48,14 @@ Deno.test('flattens steps; first line is the instruction, the rest is detail', (
 Deno.test('tolerates missing fields', () => {
   const steps = parseSteps({ legs: [{ steps: [{}] }] })
   assertEquals(steps, [
-    { instruction: '', detail: '', maneuver: 'STRAIGHT', distanceM: 0, durationS: 0, start: { lat: 0, lng: 0 }, end: { lat: 0, lng: 0 } },
+    { instruction: '', detail: '', maneuver: 'STRAIGHT', distanceM: 0, durationS: 0, start: { lat: 0, lng: 0 }, end: { lat: 0, lng: 0 }, leg: 0 },
   ])
   assertEquals(parseSteps({}), [])
+})
+
+Deno.test('numbers steps by leg, so stops can be detected', () => {
+  const steps = parseSteps({ legs: [{ steps: [{}, {}] }, { steps: [{}] }, { steps: [{}] }] })
+  assertEquals(steps.map((s) => s.leg), [0, 0, 1, 2])
 })
 
 Deno.test('traffic keeps only slow and jammed stretches', () => {

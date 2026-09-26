@@ -1,5 +1,8 @@
 // POST /functions/v1/routes
-// Body: { origin: { lat, lng }, destination: { lat, lng } }
+// Body: { origin: { lat, lng }, destination: { lat, lng }, stops?: [{ lat, lng }] }
+//
+// `stops` (up to MAX_STOPS, in order) are places to stop at on the way. With
+// stops Google returns a single route, so there's nothing to compare.
 //
 // Gets driving alternatives from Google, scores each against PathIQ's verified
 // road reports, and labels them Recommended, Fastest and Best Road. Each option
@@ -23,6 +26,7 @@ import {
 const CACHE_TTL_MS = 10 * 60 * 1000
 const REPORT_CORRIDOR_M = 50
 const MAX_ALERTS = 3
+const MAX_STOPS = 5
 
 // Rate limits (see the rate_limits migration). Per user and per IP on every
 // request; the global cap only counts requests that actually reach Google,
@@ -59,9 +63,11 @@ function parsePoint(value: unknown): LatLng | null {
 // About 110 m of precision, so nearby requests share a cache entry.
 const round3 = (n: number) => n.toFixed(3)
 
-function cacheKey(origin: LatLng, destination: LatLng): string {
+const pointKey = (p: LatLng) => `${round3(p.lat)},${round3(p.lng)}`
+
+function cacheKey(origin: LatLng, destination: LatLng, stops: LatLng[]): string {
   const bucket = Math.floor(Date.now() / CACHE_TTL_MS)
-  return `${round3(origin.lat)},${round3(origin.lng)}>${round3(destination.lat)},${round3(destination.lng)}@${bucket}`
+  return [origin, ...stops, destination].map(pointKey).join('>') + `@${bucket}`
 }
 
 Deno.serve(async (req) => {
@@ -82,10 +88,10 @@ Deno.serve(async (req) => {
   const { data: userData, error: userError } = await userClient.auth.getUser()
   if (userError || !userData.user) return json({ error: 'Not signed in' }, 401)
 
-  // The body is two points; anything big is not a real request.
+  // The body is a handful of points; anything big is not a real request.
   if (Number(req.headers.get('content-length') ?? 0) > 4096) return json({ error: 'Body too large' }, 413)
 
-  let body: { origin?: unknown; destination?: unknown }
+  let body: { origin?: unknown; destination?: unknown; stops?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -96,6 +102,13 @@ Deno.serve(async (req) => {
   if (!origin || !destination) {
     return json({ error: 'origin and destination need numeric lat and lng inside Kenya' }, 400)
   }
+  const rawStops = body.stops ?? []
+  if (!Array.isArray(rawStops) || rawStops.length > MAX_STOPS) {
+    return json({ error: `stops must be a list of at most ${MAX_STOPS} points` }, 400)
+  }
+  const stops = rawStops.map(parsePoint)
+  if (stops.some((p) => !p)) return json({ error: 'every stop needs numeric lat and lng inside Kenya' }, 400)
+  const stopPoints = stops as LatLng[]
 
   // The cache and rate-limit tables are server-only, so they use the service role.
   const admin = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
@@ -117,7 +130,7 @@ Deno.serve(async (req) => {
     return tooMany('Too many route requests from this network. Please wait a few minutes and try again.')
   }
 
-  const key = cacheKey(origin, destination)
+  const key = cacheKey(origin, destination, stopPoints)
 
   let googleRoutes: GoogleRoute[] | null = null
   let cached = false
@@ -142,7 +155,10 @@ Deno.serve(async (req) => {
       return json({ error: 'Routing is busy right now. Please try again shortly.' }, 503, { 'Retry-After': '300' })
     }
     try {
-      googleRoutes = await computeRoutes(googleKey, origin, destination, { withTraffic: TRAFFIC_ON_POLYLINE })
+      googleRoutes = await computeRoutes(googleKey, origin, destination, {
+        withTraffic: TRAFFIC_ON_POLYLINE,
+        stops: stopPoints,
+      })
     } catch (error) {
       console.error(error)
       return json({ error: 'Could not get routes from Google' }, 502)

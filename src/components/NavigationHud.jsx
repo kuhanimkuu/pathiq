@@ -8,7 +8,8 @@ import DirectionsList from './DirectionsList'
 // Everything the voice says, also on screen, like Google Maps: the next
 // manoeuvre with its distance and Google's extra detail, a "Then …" preview
 // when two turns come close together, and the full written directions.
-function NavigationHud({ step, steps = [], destinationName, muted, onToggleMute, onEnd, status, children }) {
+// `nextStop` is the next stop on the way ({ name, left }: stops still to go).
+function NavigationHud({ step, steps = [], destinationName, nextStop, muted, onToggleMute, onEnd, status, children }) {
   const [showSteps, setShowSteps] = useState(false)
   const arrivalTime = step
     ? new Date(step.computedAt + step.remainingS * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -65,7 +66,11 @@ function NavigationHud({ step, steps = [], destinationName, muted, onToggleMute,
               <div className="nav-footer-eta">
                 {formatDuration(step.remainingS)} <span>· {formatDistance(step.remainingM)} · arrive {arrivalTime}</span>
               </div>
-              <div className="nav-footer-dest">to {destinationName}</div>
+              <div className="nav-footer-dest">
+                {nextStop
+                  ? `Next stop: ${nextStop.name}${nextStop.left > 1 ? ` (+${nextStop.left - 1} more)` : ''} · then ${destinationName}`
+                  : `to ${destinationName}`}
+              </div>
             </>
           ) : (
             <div className="nav-footer-dest">{destinationName}</div>

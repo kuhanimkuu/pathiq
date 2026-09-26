@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { X, Bookmark, Star, Navigation2, Play, LocateOff, Gem, TriangleAlert, TrafficCone, MapPinPlus, List } from 'lucide-react'
+import { X, Bookmark, Star, Navigation2, Play, LocateOff, Gem, TriangleAlert, TrafficCone, MapPinPlus, List, Eye, LocateFixed, MapPin, Plus, CircleDot } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
 import { fetchNearbyGems, fetchSavedGemIds, fetchSavedGems, saveGem, unsaveGem, confirmGem, getCurrentPosition } from '../lib/gems'
 import { fetchNearbyRoadReports, reportTypeLabel, severityBand } from '../lib/roadReports'
-import { planRoutes, fetchRouteCorridor, formatDuration, routeLabel } from '../lib/routePlanning'
+import { planRoutes, fetchRouteCorridor, formatDuration, routeLabel, MAX_STOPS } from '../lib/routePlanning'
 import { loadGoogleMaps, createPathiqMap, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
 import { buildNavModel, locate, progress, distanceM, spokenDistance, formatDistance, slicePath } from '../lib/navigation'
 import { GemPin, ReportPin, GemBadge, ReportBadge, GemGlyph } from '../components/PlaceIcons'
@@ -16,6 +16,8 @@ import { loadAlertPrefs, detourMinutes, corridorForDetour } from '../lib/alertPr
 import { holdWakeLock, notifyIfHidden } from '../lib/driveAssist'
 import NavigationHud from '../components/NavigationHud'
 import DestinationSearch from '../components/DestinationSearch'
+import RouteEditor from '../components/RouteEditor'
+import RoutePreviewHud from '../components/RoutePreviewHud'
 import DirectionsList from '../components/DirectionsList'
 import ManeuverIcon from '../components/ManeuverIcon'
 
@@ -30,6 +32,14 @@ const GEM_AHEAD_M = 600 // "approaching" alert when a gem is this close ahead on
 const GEM_PASSED_MIN_M = 20 // "just passed" alert once it's this far behind…
 const GEM_PASSED_MAX_M = 400 // …and not later than this
 const GEM_ALERT_MS = 10_000
+// Live navigation needs the driver at the start of the route. A route starting
+// somewhere else (or planned with location off) can only be previewed.
+const LIVE_START_M = 150
+
+// "Your location" as a route point: resolved to the latest GPS fix when planning.
+const ME = { me: true, name: 'Your location' }
+const PICK_PLACEHOLDER = { from: 'Choose starting point', to: 'Choose destination', stop: 'Add a stop' }
+const PICK_ON_MAP_TEXT = { from: 'the starting point', to: 'the destination', stop: 'a stop' }
 
 const categories = [
   { value: 'attractions', label: 'Attractions' },
@@ -81,16 +91,30 @@ function trafficText({ slowM, jamM }) {
   return { text: 'Traffic clear', level: 'clear' }
 }
 
-// `?to=lat,lng&name=…&route=…&nav=1` plans a route on arrival (and starts
-// navigating with nav=1) — used by the Routes tab and Home's "Resume".
+// `?to=lat,lng&name=…&route=…&stops=[…]&nav=1` plans a route on arrival (and
+// starts navigating with nav=1) — used by History and Home's "Resume".
 function parseUrlPlan(params) {
   const [lat, lng] = (params.get('to') ?? '').split(',').map(Number)
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
   return {
     to: { lat, lng },
     name: params.get('name') || 'Dropped pin',
+    stops: parseUrlStops(params.get('stops')),
     routeId: params.get('route'),
     nav: params.get('nav') === '1',
+  }
+}
+
+function parseUrlStops(value) {
+  try {
+    const stops = JSON.parse(value ?? '[]')
+    if (!Array.isArray(stops)) return []
+    return stops
+      .filter((s) => Number.isFinite(s?.lat) && Number.isFinite(s?.lng))
+      .slice(0, MAX_STOPS)
+      .map((s, i) => ({ lat: s.lat, lng: s.lng, name: typeof s.name === 'string' && s.name ? s.name : `Stop ${i + 1}` }))
+  } catch {
+    return []
   }
 }
 
@@ -136,7 +160,19 @@ function MapPage() {
   // PathIQ's layers, toggled from the map. Traffic is Google's live layer.
   const [layers, setLayers] = useState({ gems: true, reports: true, traffic: false })
 
-  const [plan, setPlan] = useState(null) // { destination, destinationName, options, selectedId }
+  // The route being set up: from (ME, a place, or null until chosen), stops
+  // on the way, and to (null until chosen). Places are { lat, lng, name }.
+  const [draft, setDraft] = useState(null)
+  // Which route point is being chosen: { slot: 'from' | 'to' | 'stop', index,
+  // onMap } — onMap means the next tap on the map chooses it.
+  const [picking, setPicking] = useState(null)
+  const editorRef = useRef(null)
+  const planSeqRef = useRef(0) // only the latest planning request may land
+  // Stepping through the directions by hand (no GPS): { index }
+  const [preview, setPreview] = useState(null)
+  // Planned routes for `draft`: { origin, fromMe, stops, destination,
+  // destinationName, options, selectedId }
+  const [plan, setPlan] = useState(null)
   const [corridor, setCorridor] = useState({ routeId: null, gems: [] })
   // Read once per visit: they're changed on the Profile page.
   const [alertPrefs] = useState(loadAlertPrefs)
@@ -152,6 +188,7 @@ function MapPage() {
   const [muted, setMuted] = useState(readMuted)
   const [showRouteSteps, setShowRouteSteps] = useState(false)
   const trackRef = useRef({ s: 0, seg: 0, offCount: 0, lastRerouteAt: 0, lastSavedStep: -1 })
+  const recenteredRef = useRef(false)
   const spokenRef = useRef(new Set())
 
   const mapDivRef = useRef(null)
@@ -164,6 +201,11 @@ function MapPage() {
   const selectedIncident = selected?.type === 'incident' ? incidents.find((i) => i.id === selected.id) : null
   const selectedRoute = plan?.options.find((o) => o.id === plan.selectedId) ?? null
   const navActive = nav != null && nav.status !== 'arrived'
+  // Only a real GPS fix, never the central-Nairobi stand-in used when location is off.
+  const livePos = position && !position.isFallback ? position : null
+  // Live navigation needs the driver at the route's start; otherwise, preview.
+  const canNavigateLive =
+    plan != null && livePos != null && (plan.fromMe || distanceM(livePos, plan.origin) <= LIVE_START_M)
 
   const fetchAround = useCallback(
     async (pos) => {
@@ -198,7 +240,8 @@ function MapPage() {
         const pos = await getCurrentPosition()
         const { gemRows, incidentRows, saved } = await fetchAround(pos)
         if (cancelled) return
-        setPosition(pos)
+        // The GPS watch may already have a live fix; don't replace it with the stand-in.
+        setPosition((p) => (p && !p.isFallback ? p : pos))
         setGems(gemRows)
         setIncidents(incidentRows)
         setSavedIds(saved)
@@ -236,30 +279,120 @@ function MapPage() {
     }
   }, [session])
 
-  // Plans routes and shows them; resolves to the chosen option (or null).
-  const planTo = useCallback(
-    async (destination, destinationName = 'Dropped pin', preferredRouteId = null) => {
-      if (!position) return null
-      setRouteError('')
-      setRouting(true)
-      setSelected(null)
-      setDropped(null)
-      setShowRouteSteps(false)
-      try {
-        const options = await planRoutes(position, destination)
-        const option = options.find((o) => o.id === preferredRouteId) ?? options[0]
-        setPlan({ destination, destinationName, options, selectedId: option.id })
-        return option
-      } catch (err) {
-        setRouteError(err.message)
-        setPlan(null)
-        return null
-      } finally {
-        setRouting(false)
+  // Your live position for planning: the latest GPS fix, or a fresh attempt
+  // (which is also when the browser asks for permission). Null if location is off.
+  async function currentLivePosition() {
+    if (livePos) return livePos
+    const pos = await getCurrentPosition({ timeoutMs: 6000 })
+    if (pos.isFallback) return null
+    setPosition(pos)
+    return pos
+  }
+
+  // Sets the route being planned and, once it has a start and a destination,
+  // plans it. Resolves to the chosen route option, or null.
+  async function planDraft(next, preferredRouteId = null) {
+    const seq = ++planSeqRef.current
+    setDraft(next)
+    setRouteError('')
+    setSelected(null)
+    setDropped(null)
+    setShowRouteSteps(false)
+    setPreview(null)
+    if (!next.from || !next.to) {
+      setPlan(null)
+      setRouting(false)
+      setPicking({ slot: next.from ? 'to' : 'from' })
+      return null
+    }
+    setRouting(true)
+    try {
+      const points = [next.from, ...next.stops, next.to]
+      if (points.some((p) => p.me)) {
+        const here = await currentLivePosition()
+        if (!here) {
+          if (seq !== planSeqRef.current) return null
+          const cleared = {
+            from: next.from.me ? null : next.from,
+            stops: next.stops,
+            to: next.to.me ? null : next.to,
+          }
+          setDraft(cleared)
+          setPlan(null)
+          setPicking({ slot: cleared.from ? 'to' : 'from' })
+          setRouteError("Your location isn't available. Choose a place instead, or turn location on.")
+          return null
+        }
+        points.forEach((p, i) => p.me && (points[i] = { ...here, name: ME.name, me: true }))
       }
-    },
-    [position],
-  )
+      const [origin, ...rest] = points
+      const destination = rest.pop()
+      const options = await planRoutes(origin, destination, rest)
+      if (seq !== planSeqRef.current) return null
+      // A routes function from before stops existed ignores them; don't show
+      // a route that silently skips the driver's stops.
+      if (rest.length > 0 && buildNavModel(options[0]).legEnds.length !== rest.length) {
+        throw new Error("Stops couldn't be added to this route. Please try again later.")
+      }
+      const option = options.find((o) => o.id === preferredRouteId) ?? options[0]
+      setPlan({
+        origin: { lat: origin.lat, lng: origin.lng },
+        fromMe: !!origin.me,
+        stops: rest.map((s) => ({ lat: s.lat, lng: s.lng, name: s.name })),
+        destination: { lat: destination.lat, lng: destination.lng },
+        destinationName: destination.name,
+        options,
+        selectedId: option.id,
+      })
+      return option
+    } catch (err) {
+      if (seq !== planSeqRef.current) return null
+      setRouteError(err.message)
+      setPlan(null)
+      return null
+    } finally {
+      if (seq === planSeqRef.current) setRouting(false)
+    }
+  }
+
+  // Route to somewhere (search, "Route here", History), keeping the start and
+  // stops already chosen. Starts from your location when it's on.
+  function planTo(to, name = 'Dropped pin', preferredRouteId = null, stops = null) {
+    const base = draft ?? { from: livePos ? ME : null, stops: [] }
+    return planDraft({ ...base, stops: stops ?? base.stops, to: { lat: to.lat, lng: to.lng, name } }, preferredRouteId)
+  }
+
+  // Put a chosen place into one of the route editor's points.
+  function fillSlot(target, place) {
+    const d = draft ?? { from: livePos ? ME : null, stops: [], to: null }
+    setPicking(null)
+    if (target.slot === 'from') return planDraft({ ...d, from: place })
+    if (target.slot === 'to') return planDraft({ ...d, to: place })
+    const stops = [...d.stops]
+    if (target.index == null) stops.push(place)
+    else stops[target.index] = place
+    return planDraft({ ...d, stops })
+  }
+
+  function removeStop(index) {
+    planDraft({ ...draft, stops: draft.stops.filter((_, i) => i !== index) })
+  }
+
+  function swapEnds() {
+    planDraft({ ...draft, from: draft.to, to: draft.from, stops: [...draft.stops].reverse() })
+  }
+
+  function clearDirections() {
+    planSeqRef.current++
+    setDraft(null)
+    setPicking(null)
+    setPreview(null)
+    setPlan(null)
+    setRouting(false)
+    setShowRouteSteps(false)
+    setCorridor({ routeId: null, gems: [] })
+    setRouteError('')
+  }
 
   function speak(text) {
     if (muted || !('speechSynthesis' in window)) return
@@ -283,6 +416,7 @@ function MapPage() {
     return {
       destination: n.destination,
       destinationName: n.destinationName,
+      stops: n.stops.slice(n.stopsReached),
       routeId: n.routeId,
       routeLabel: n.routeLabel,
       roadQuality: n.roadQuality,
@@ -294,9 +428,9 @@ function MapPage() {
     }
   }
 
-  function startNavigation(option, destination, destinationName) {
+  // `trip` is { destination, destinationName, stops } — stops in route order.
+  function startNavigation(option, { destination, destinationName, stops = [] }) {
     const model = buildNavModel(option)
-    const livePos = position && !position.isFallback ? position : null
     const loc = livePos ? locate(model, livePos) : { s: 0, seg: 0 }
     trackRef.current = { s: loc.s, seg: loc.seg, offCount: 0, lastRerouteAt: 0, lastSavedStep: -1 }
     spokenRef.current = new Set()
@@ -313,6 +447,8 @@ function MapPage() {
       roadQuality: option.scores.roadQuality,
       destination,
       destinationName,
+      stops,
+      stopsReached: 0,
       startedAt: resumed?.startedAt ?? Date.now(),
       tripId: resumed?.tripId ?? null,
       reroutes: resumed?.reroutes ?? 0,
@@ -332,6 +468,8 @@ function MapPage() {
     setNavError('')
     setSelected(null)
     setDropped(null)
+    setPicking(null)
+    setPreview(null)
     setShowRouteSteps(false)
     saveActiveTrip(tripRecord(next, step))
     speak(`Starting route to ${destinationName}.`)
@@ -378,17 +516,22 @@ function MapPage() {
     setNav((n) => n && { ...n, status: 'rerouting', reroutes })
     if (current.tripId) recordReroute(current.tripId, reroutes).catch(() => {})
     speak('Rerouting.')
+    // Stops already reached are done; the new route goes through the rest.
+    const stops = current.stops.slice(current.stopsReached)
     try {
-      const options = await planRoutes(from, current.destination)
+      const options = await planRoutes(from, current.destination, stops)
       const option = options[0]
       const model = buildNavModel(option)
       const loc = locate(model, from)
       trackRef.current = { ...trackRef.current, s: loc.s, seg: loc.seg, offCount: 0, lastSavedStep: -1 }
       spokenRef.current = new Set()
-      setPlan((p) => p && { ...p, options, selectedId: option.id })
+      setPlan((p) => p && { ...p, origin: from, fromMe: true, stops, options, selectedId: option.id })
+      setDraft((d) => d && { ...d, from: ME, stops })
       setNav((n) => n && {
         ...n,
         status: 'active',
+        stops,
+        stopsReached: 0,
         model,
         step: progress(model, loc.s),
         routeId: option.id,
@@ -434,10 +577,22 @@ function MapPage() {
   }
 
   function handleFix(pos) {
+    // The first real fix after starting with location off: fetch what's
+    // around the driver, and move there unless a route is on screen.
+    if (position?.isFallback && !recenteredRef.current) {
+      recenteredRef.current = true
+      if (!draft) mapRef.current?.panTo(pos)
+      fetchAround(pos)
+        .then(({ gemRows, incidentRows }) => {
+          setGems(gemRows)
+          setIncidents(incidentRows)
+        })
+        .catch(() => {})
+    }
     setPosition(pos)
-    setNavError('')
     const current = nav
     if (!current || current.status !== 'active') return
+    setNavError('')
     const t = trackRef.current
     const loc = locate(current.model, pos, t)
     const onRoute = loc.offRouteM <= OFF_ROUTE_M
@@ -448,7 +603,19 @@ function MapPage() {
     }
     mapRef.current?.panTo(pos)
 
-    if (distanceM(pos, current.destination) < ARRIVE_M || current.model.total - t.s < ARRIVE_M) {
+    // Stops on the way, in order: reached when progress gets to the end of its leg.
+    const legEnds = current.model.legEnds
+    let stopsReached = current.stopsReached
+    if (stopsReached < legEnds.length && t.s >= legEnds[stopsReached] - ARRIVE_M) {
+      const stop = current.stops[stopsReached]
+      stopsReached += 1
+      const nextName = current.stops[stopsReached]?.name ?? current.destinationName
+      speak(`You've reached ${stop?.name ?? `stop ${stopsReached}`}. Continuing to ${nextName}.`)
+    }
+    const allStopsDone = stopsReached >= legEnds.length
+
+    // A round trip ends where it started, so only count the destination once every stop is done.
+    if (allStopsDone && (distanceM(pos, current.destination) < ARRIVE_M || current.model.total - t.s < ARRIVE_M)) {
       setNav({ ...current, status: 'arrived' })
       setGemAlert(null)
       clearActiveTrip()
@@ -461,14 +628,19 @@ function MapPage() {
       return
     }
     const step = progress(current.model, t.s)
-    setNav({ ...current, step })
+    const updated = { ...current, step, stopsReached }
+    setNav(updated)
     announce(step)
     checkGemAlerts(current, t.s)
     // Keep Home's Active route card roughly current without writing on every fix.
-    if (step.stepIndex !== t.lastSavedStep || Date.now() - (t.lastSavedAt ?? 0) > TRIP_SAVE_INTERVAL_MS) {
+    if (
+      step.stepIndex !== t.lastSavedStep ||
+      stopsReached !== current.stopsReached ||
+      Date.now() - (t.lastSavedAt ?? 0) > TRIP_SAVE_INTERVAL_MS
+    ) {
       t.lastSavedStep = step.stepIndex
       t.lastSavedAt = Date.now()
-      saveActiveTrip(tripRecord(current, step))
+      saveActiveTrip(tripRecord(updated, step))
     }
   }
 
@@ -476,12 +648,13 @@ function MapPage() {
   // through this ref so they always reach the current render's functions.
   const latest = useRef({})
   useEffect(() => {
-    latest.current = { planTo, startNavigation, handleFix, nav }
+    latest.current = { planTo, startNavigation, handleFix, fillSlot, nav, preview, picking, position }
   })
 
-  // Create the map once we know where the driver is.
+  // Create the map once we know where the driver is (or that location is off).
+  const hasPosition = position != null
   useEffect(() => {
-    if (!position || mapRef.current || !mapDivRef.current) return
+    if (!hasPosition || mapRef.current || !mapDivRef.current) return
     let cancelled = false
     const onAuthFailure = () => setMapError('Google Maps rejected the API key — check its restrictions in Cloud Console.')
     window.addEventListener(AUTH_FAILURE_EVENT, onAuthFailure)
@@ -490,16 +663,23 @@ function MapPage() {
     loadGoogleMaps()
       .then((api) => {
         if (cancelled || !mapDivRef.current) return
-        const map = createPathiqMap(api, mapDivRef.current, { center: position, zoom: 14 })
+        const map = createPathiqMap(api, mapDivRef.current, { center: latest.current.position, zoom: 14 })
         // Turn icons only at street level (CSS hides them otherwise).
         const div = mapDivRef.current
         const syncZoomClass = () => div.classList.toggle('show-maneuvers', map.getZoom() >= MANEUVER_MIN_ZOOM)
         map.addListener('zoom_changed', syncZoomClass)
         syncZoomClass()
         map.addListener('click', (e) => {
-          if (latest.current.nav) return // no re-planning mid-drive
+          const l = latest.current
+          if (l.nav || l.preview) return // no re-planning mid-drive
+          const at = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+          // Choosing a route point by tapping the map.
+          if (l.picking?.onMap) {
+            l.fillSlot(l.picking, { ...at, name: 'Pin on map' })
+            return
+          }
           setSelected(null)
-          setDropped({ lat: e.latLng.lat(), lng: e.latLng.lng() })
+          setDropped(at)
         })
         mapsApiRef.current = api
         mapRef.current = map
@@ -511,32 +691,39 @@ function MapPage() {
       cancelled = true
       window.removeEventListener(AUTH_FAILURE_EVENT, onAuthFailure)
     }
-  }, [position])
+  }, [hasPosition])
 
   // Arriving with ?to=… — plan it once the map is up, and start navigating
   // straight away with nav=1.
   useEffect(() => {
     if (!mapReady || !urlPlan.current) return
-    const { to, name, routeId, nav: startNav } = urlPlan.current
+    const { to, name, routeId, stops, nav: startNav } = urlPlan.current
     urlPlan.current = null
-    latest.current.planTo(to, name, routeId).then((option) => {
-      if (option && startNav) latest.current.startNavigation(option, to, name)
+    latest.current.planTo(to, name, routeId, stops).then((option) => {
+      if (option && startNav) latest.current.startNavigation(option, { destination: to, destinationName: name, stops })
     })
   }, [mapReady])
 
-  // Live GPS while navigating.
+  // Live GPS the whole time the map is open, not just while navigating, so a
+  // route starts from where the driver is now rather than where they were
+  // when the page loaded, and turning location on later is picked up.
   useEffect(() => {
-    if (!navActive) return
-    if (!('geolocation' in navigator)) {
-      queueMicrotask(() => setNavError('This device has no GPS — navigation needs your live location.'))
-      return
-    }
+    if (!('geolocation' in navigator)) return
     const id = navigator.geolocation.watchPosition(
       (p) => latest.current.handleFix({ lat: p.coords.latitude, lng: p.coords.longitude, isFallback: false }),
-      () => setNavError('Live location unavailable — allow location access to navigate.'),
+      () => {
+        const n = latest.current.nav
+        if (n && n.status !== 'arrived') setNavError('Live location unavailable — allow location access to navigate.')
+      },
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
     )
     return () => navigator.geolocation.clearWatch(id)
+  }, [])
+
+  useEffect(() => {
+    if (navActive && !('geolocation' in navigator)) {
+      queueMicrotask(() => setNavError('This device has no GPS — navigation needs your live location.'))
+    }
   }, [navActive])
 
   // Gems/reports along whichever route is selected, on its real geometry.
@@ -584,20 +771,21 @@ function MapPage() {
   // edge function (old ones fade out — see isStillRelevant in scoring.ts).
   const routeReportIds = useMemo(() => new Set((selectedRoute?.hazards ?? []).map((h) => h.id)), [selectedRoute])
 
-  // The driver's dot: one marker, moved as GPS updates arrive.
+  // The driver's dot: one marker, moved as GPS updates arrive. Only for a
+  // real fix; with location off there's no "you are here".
   const userMarkerRef = useRef(null)
   useEffect(() => {
     const api = mapsApiRef.current
-    if (!mapReady || !api || !position) return
+    if (!mapReady || !api || !livePos) return
     if (!userMarkerRef.current) {
       const dot = document.createElement('div')
       dot.className = 'map-user-dot'
       dot.setAttribute('aria-label', 'Your location')
-      userMarkerRef.current = new api.HtmlMarker({ map: mapRef.current, position, content: dot, zIndex: 30 })
+      userMarkerRef.current = new api.HtmlMarker({ map: mapRef.current, position: livePos, content: dot, zIndex: 30 })
     } else {
-      userMarkerRef.current.setPosition(position)
+      userMarkerRef.current.setPosition(livePos)
     }
-  }, [mapReady, position])
+  }, [mapReady, livePos])
 
   // Markers: gems, road reports, destination.
   useEffect(() => {
@@ -651,11 +839,29 @@ function MapPage() {
       )
     }
 
-    const pin = plan?.destination ?? dropped
-    if (pin) {
+    // The route's own points: a chosen start (not "Your location", which is
+    // the blue dot), numbered stops, and the destination.
+    if (draft?.from && !draft.from.me) {
+      const start = document.createElement('div')
+      start.className = 'map-pin-start'
+      start.setAttribute('aria-label', 'Start: ' + draft.from.name)
+      add(draft.from, start, 26)
+    }
+    draft?.stops.forEach((stop, i) => {
+      const el = document.createElement('div')
+      el.className = 'map-pin-stop'
+      el.textContent = String(i + 1)
+      el.setAttribute('aria-label', `Stop ${i + 1}: ${stop.name}`)
+      add(stop, el, 26)
+    })
+    for (const [pin, label] of [
+      [draft?.to && !draft.to.me ? draft.to : null, 'Destination'],
+      [dropped, 'Dropped pin'],
+    ]) {
+      if (!pin) continue
       const dest = document.createElement('div')
       dest.className = 'map-pin-destination'
-      dest.setAttribute('aria-label', plan ? 'Destination' : 'Dropped pin')
+      dest.setAttribute('aria-label', label)
       add(pin, dest, 25)
     }
 
@@ -663,7 +869,7 @@ function MapPage() {
       markers.forEach((m) => m.setMap(null))
       setTimeout(() => roots.forEach((r) => r.unmount())) // not during React's own commit
     }
-  }, [mapReady, visibleGems, visibleIncidents, routeGemIds, routeReportIds, plan, dropped, selected, savedIds])
+  }, [mapReady, visibleGems, visibleIncidents, routeGemIds, routeReportIds, draft, dropped, selected, savedIds])
 
   // Google's live traffic, as an optional layer under ours.
   const trafficRef = useRef(null)
@@ -712,14 +918,15 @@ function MapPage() {
   }, [mapReady, selectedRoute, layers.reports])
 
   // Route lines: every alternative, the selected one on top and in colour.
-  // Tapping a grey alternative selects it. While navigating, only the route
-  // being driven is shown.
+  // Tapping a grey alternative selects it. While navigating or previewing,
+  // only the route being followed is shown.
+  const followingRoute = navActive || preview != null
   useEffect(() => {
     const map = mapRef.current
     const api = mapsApiRef.current
     if (!mapReady || !map || !api || !plan) return
     const lines = plan.options
-      .filter((option) => !navActive || option.id === plan.selectedId)
+      .filter((option) => !followingRoute || option.id === plan.selectedId)
       .flatMap((option) => {
         const isSelected = option.id === plan.selectedId
         const base = new api.Polyline({
@@ -763,7 +970,7 @@ function MapPage() {
         return [base, ...traffic, arrows]
       })
     return () => lines.forEach((l) => l.setMap(null))
-  }, [mapReady, plan, navActive])
+  }, [mapReady, plan, followingRoute])
 
   // Turn icons at each manoeuvre of the selected route (shown at street level).
   useEffect(() => {
@@ -792,16 +999,36 @@ function MapPage() {
   // Frame a new set of routes (not when merely switching between them, and
   // not mid-drive, where the camera follows the driver instead).
   const options = plan?.options
-  useEffect(() => {
+  const fitRoutes = useCallback(() => {
     const map = mapRef.current
     const api = mapsApiRef.current
-    if (!mapReady || !map || !api || !options || latest.current.nav) return
+    if (!map || !api || !options) return
     const bounds = new api.LatLngBounds()
     options.forEach((o) => o.path.forEach((p) => bounds.extend(p)))
-    // Keep the routes clear of the search bar above and the route panel below.
+    // Keep the routes clear of the route editor above and the route panel below.
+    const top = (editorRef.current?.offsetHeight ?? 110) + 36
     const panelHeight = routePanelRef.current?.offsetHeight ?? 280
-    map.fitBounds(bounds, { top: 130, bottom: panelHeight + 24, left: 40, right: 72 })
-  }, [mapReady, options])
+    map.fitBounds(bounds, { top, bottom: panelHeight + 24, left: 40, right: 72 })
+  }, [options])
+  useEffect(() => {
+    if (!mapReady || latest.current.nav || latest.current.preview) return
+    fitRoutes()
+  }, [mapReady, fitRoutes])
+
+  // Previewing: the map follows the step being shown.
+  const previewStep = preview != null ? selectedRoute?.steps?.[preview.index] : null
+  useEffect(() => {
+    const map = mapRef.current
+    if (!mapReady || !map || !previewStep) return
+    map.setZoom(NAV_ZOOM)
+    map.panTo(previewStep.start)
+  }, [mapReady, previewStep])
+
+  function closePreview() {
+    setPreview(null)
+    // After the panel re-renders, so its height is known.
+    setTimeout(fitRoutes)
+  }
 
   function toggleCategory(cat) {
     setActiveCategories((prev) => {
@@ -844,13 +1071,37 @@ function MapPage() {
     }
   }
 
-  function handleClearRoute() {
-    setShowRouteSteps(false)
-    setPlan(null)
-    setCorridor({ routeId: null, gems: [] })
-    setRouteError('')
-  }
 
+
+  // One-tap choices above search results while choosing a route point.
+  const pickExtras = picking
+    ? [
+        ...(picking.slot === 'stop'
+          ? []
+          : [
+              {
+                key: 'me',
+                icon: <LocateFixed size={15} />,
+                title: 'Your location',
+                sub: livePos ? 'Where you are now' : 'Location is off. Tap to try again.',
+                onPick: () => fillSlot(picking, ME),
+              },
+            ]),
+        {
+          key: 'map',
+          icon: <MapPin size={15} />,
+          title: 'Choose on the map',
+          sub: 'Tap a spot on the map',
+          onPick: () => setPicking({ ...picking, onMap: true }),
+        },
+      ]
+    : []
+  const legNames = plan ? [...plan.stops.map((s) => s.name), plan.destinationName] : []
+  const nextStop =
+    nav && nav.stopsReached < nav.stops.length
+      ? { name: nav.stops[nav.stopsReached].name, left: nav.stops.length - nav.stopsReached }
+      : null
+  const canAddStop = draft?.to != null && draft.stops.length < MAX_STOPS
 
   return (
     <div className="map-page">
@@ -865,6 +1116,7 @@ function MapPage() {
           steps={nav.model.steps}
           status={nav.status}
           destinationName={nav.destinationName}
+          nextStop={nextStop}
           muted={muted}
           onToggleMute={toggleMute}
           onEnd={endNavigation}
@@ -891,17 +1143,60 @@ function MapPage() {
             </div>
           )}
         </NavigationHud>
+      ) : preview != null && selectedRoute?.steps?.length > 0 ? (
+        <RoutePreviewHud
+          steps={selectedRoute.steps}
+          index={preview.index}
+          legNames={legNames}
+          route={selectedRoute}
+          onPrev={() => setPreview((p) => ({ index: Math.max(0, p.index - 1) }))}
+          onNext={() => setPreview((p) => ({ index: Math.min(selectedRoute.steps.length - 1, p.index + 1) }))}
+          onClose={closePreview}
+        />
       ) : (
         <>
-          <DestinationSearch
-            gems={gems}
-            recent={quickPicks.recent}
-            saved={quickPicks.saved}
-            near={position}
-            placeholder="Where to? Search a place or gem, or tap the map…"
-            onPickGem={handlePickGem}
-            onPickPlace={(place) => planTo({ lat: place.lat, lng: place.lng }, place.name)}
-          />
+          {picking && !picking.onMap ? (
+            <DestinationSearch
+              key={`${picking.slot}:${picking.index ?? ''}`}
+              gems={gems}
+              recent={quickPicks.recent}
+              saved={quickPicks.saved}
+              near={livePos ?? position}
+              placeholder={PICK_PLACEHOLDER[picking.slot]}
+              autoFocus
+              gemsAsPlaces
+              extraItems={pickExtras}
+              onCancel={() => (draft ? setPicking(null) : clearDirections())}
+              onPickPlace={(place) => fillSlot(picking, place)}
+            />
+          ) : picking?.onMap ? (
+            <div className="map-pick-banner" role="status">
+              <MapPin size={15} />
+              <span>Tap the map to choose {PICK_ON_MAP_TEXT[picking.slot]}</span>
+              <button onClick={() => setPicking({ ...picking, onMap: false })}>Cancel</button>
+            </div>
+          ) : draft ? (
+            <RouteEditor
+              draft={draft}
+              maxStops={MAX_STOPS}
+              editorRef={editorRef}
+              onEdit={(target) => setPicking(target)}
+              onRemoveStop={removeStop}
+              onAddStop={() => setPicking({ slot: 'stop' })}
+              onSwap={swapEnds}
+              onClose={clearDirections}
+            />
+          ) : (
+            <DestinationSearch
+              gems={gems}
+              recent={quickPicks.recent}
+              saved={quickPicks.saved}
+              near={livePos ?? position}
+              placeholder="Where to? Search a place or gem, or tap the map…"
+              onPickGem={handlePickGem}
+              onPickPlace={(place) => planTo({ lat: place.lat, lng: place.lng }, place.name)}
+            />
+          )}
 
           <div className="map-layers" role="group" aria-label="Map layers">
             <button
@@ -930,7 +1225,7 @@ function MapPage() {
             </button>
           </div>
 
-          <div className="map-filter-row">
+          <div className="map-filter-row" hidden={draft != null}>
             {categories.map((c) => (
               <button
                 key={c.value}
@@ -942,7 +1237,7 @@ function MapPage() {
             ))}
           </div>
 
-          {(routing || plan || routeError) && !selectedGem && !selectedIncident && (
+          {(routing || plan || routeError) && !selectedGem && !selectedIncident && !dropped && !picking && (
             // Every alternative side by side — time, distance, PathIQ's scores and
             // the road problems on it — then the selected route's problems and
             // Start. This is the whole route-comparison feature; there's no
@@ -956,11 +1251,14 @@ function MapPage() {
                     <div style={{ minWidth: 0 }}>
                       <div className="route-panel-title">To {plan.destinationName}</div>
                       <div className="route-panel-sub">
-                        {plan.options.length} route{plan.options.length === 1 ? '' : 's'} · {corridor.gems.length} gem
-                        {corridor.gems.length === 1 ? '' : 's'} along the selected one
+                        {plan.stops.length > 0
+                          ? `Via ${plan.stops.length} stop${plan.stops.length === 1 ? '' : 's'} · `
+                          : `${plan.options.length} route${plan.options.length === 1 ? '' : 's'} · `}
+                        {corridor.gems.length} gem{corridor.gems.length === 1 ? '' : 's'} along the{' '}
+                        {plan.options.length === 1 ? 'route' : 'selected one'}
                       </div>
                     </div>
-                    <button className="map-route-clear" onClick={handleClearRoute} aria-label="Clear route">
+                    <button className="map-route-clear" onClick={clearDirections} aria-label="Clear route">
                       <X size={16} />
                     </button>
                   </div>
@@ -1008,13 +1306,36 @@ function MapPage() {
                     <span><i className="swatch dotted" /> Road report</span>
                   </div>
 
+                  {!canNavigateLive && (
+                    <p className="route-preview-note">
+                      <Eye size={13} />
+                      <span>
+                        {!livePos
+                          ? 'Location is off, so you can preview the directions step by step. Turn it on for live turn-by-turn.'
+                          : plan.fromMe
+                            ? 'Waiting for your location…'
+                            : `This route starts ${formatDistance(distanceM(livePos, plan.origin))} from you. Live turn-by-turn starts once you're there, or set the start to Your location.`}
+                      </span>
+                    </p>
+                  )}
+
                   <div className="route-panel-actions">
-                    <button
-                      className="map-route-start route-panel-start"
-                      onClick={() => startNavigation(selectedRoute, plan.destination, plan.destinationName)}
-                    >
-                      <Play size={14} fill="currentColor" /> Start · {routeLabel(selectedRoute)}
-                    </button>
+                    {canNavigateLive ? (
+                      <button
+                        className="map-route-start route-panel-start"
+                        onClick={() => startNavigation(selectedRoute, plan)}
+                      >
+                        <Play size={14} fill="currentColor" /> Start · {routeLabel(selectedRoute)}
+                      </button>
+                    ) : (
+                      <button
+                        className="map-route-start route-panel-start"
+                        disabled={!selectedRoute.steps?.length}
+                        onClick={() => setPreview({ index: 0 })}
+                      >
+                        <Eye size={14} /> Preview directions
+                      </button>
+                    )}
                     {selectedRoute.steps?.length > 0 && (
                       <button className="route-panel-steps" onClick={() => setShowRouteSteps(true)}>
                         <List size={15} /> Steps
@@ -1036,11 +1357,12 @@ function MapPage() {
         />
       )}
 
-      {!nav && !loading && position?.isFallback && (
+      {!nav && !loading && position?.isFallback && !draft && !dropped && (
         <div className="map-location-notice">
           <LocateOff size={14} />
           <span>
-            Location is off, so this shows central Nairobi. Turn it on to plan from where you are and to navigate.{' '}
+            Location is off, so this shows central Nairobi. You can still plan a route: choose a destination, then a
+            starting point. Turn location on to navigate from where you are.{' '}
             <Link to="/privacy">How we use location</Link>
           </span>
         </div>
@@ -1061,11 +1383,19 @@ function MapPage() {
             <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>Dropped pin</div>
             <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 2 }}>
               {dropped.lat.toFixed(5)}, {dropped.lng.toFixed(5)}
-              {position ? ` · ${(distanceM(position, dropped) / 1000).toFixed(1)} km away` : ''}
+              {livePos ? ` · ${(distanceM(livePos, dropped) / 1000).toFixed(1)} km away` : ''}
             </div>
             <div className="map-pin-actions">
               <button className="map-route-start" disabled={routing} onClick={() => planTo(dropped, 'Dropped pin')}>
-                <Navigation2 size={13} /> Route here
+                <Navigation2 size={13} /> {draft?.to ? 'Make destination' : 'Route here'}
+              </button>
+              {canAddStop && (
+                <button className="map-route-here-btn" onClick={() => fillSlot({ slot: 'stop' }, { ...dropped, name: 'Dropped pin' })}>
+                  <Plus size={13} /> Add as stop
+                </button>
+              )}
+              <button className="map-route-here-btn" onClick={() => fillSlot({ slot: 'from' }, { ...dropped, name: 'Dropped pin' })}>
+                <CircleDot size={13} /> Start here
               </button>
               {isScout && (
                 <>
@@ -1119,13 +1449,23 @@ function MapPage() {
                     </span>
                   </div>
                   {!nav && (
-                    <button
-                      className="map-route-here-btn"
-                      disabled={routing}
-                      onClick={() => planTo({ lat: selectedGem.lat, lng: selectedGem.lng }, selectedGem.name)}
-                    >
-                      <Navigation2 size={13} /> Route here
-                    </button>
+                    <div className="map-pin-actions">
+                      <button
+                        className="map-route-here-btn"
+                        disabled={routing}
+                        onClick={() => planTo({ lat: selectedGem.lat, lng: selectedGem.lng }, selectedGem.name)}
+                      >
+                        <Navigation2 size={13} /> {draft?.to ? 'Make destination' : 'Route here'}
+                      </button>
+                      {canAddStop && (
+                        <button
+                          className="map-route-here-btn"
+                          onClick={() => fillSlot({ slot: 'stop' }, { lat: selectedGem.lat, lng: selectedGem.lng, name: selectedGem.name })}
+                        >
+                          <Plus size={13} /> Add as stop
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
                 <button

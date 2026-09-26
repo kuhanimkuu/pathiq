@@ -15,8 +15,8 @@ export function loadActiveTrip() {
   }
 }
 
-// { destination: {lat,lng}, destinationName, routeId, routeLabel, roadQuality,
-//   remainingM, remainingS, startedAt }
+// { destination: {lat,lng}, destinationName, stops: [{lat,lng,name}] (still to
+//   visit), routeId, routeLabel, roadQuality, remainingM, remainingS, startedAt }
 export function saveActiveTrip(trip) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...trip, updatedAt: Date.now() }))
@@ -41,5 +41,8 @@ export function resumeUrl(trip) {
     nav: '1',
   })
   if (trip.routeId) params.set('route', trip.routeId)
+  if (trip.stops?.length) {
+    params.set('stops', JSON.stringify(trip.stops.map((s) => ({ lat: +s.lat.toFixed(5), lng: +s.lng.toFixed(5), name: s.name }))))
+  }
   return `/app/map?${params}`
 }

@@ -1730,3 +1730,194 @@ html.light .map-alert {
 .route-alert .place-badge { vertical-align: middle; margin-right: 4px; }
 .nav-gem-alert .place-badge { border-radius: 10px; }
 .filter-chip svg, .chip svg { vertical-align: -2px; }
+
+/* ── Directions: start, stops and destination (src/components/RouteEditor.jsx) ── */
+.map-filter-row[hidden] { display: none; }
+
+.route-editor {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 25;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  padding: 10px 10px 8px 12px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.35);
+}
+.route-editor-rows { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.route-editor-row { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* The dotted line joining the points, like a route. */
+.route-editor-row:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: calc(50% + 9px);
+  height: 16px;
+  border-left: 2px dotted var(--muted-foreground);
+  opacity: 0.6;
+}
+.route-editor-dot {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.route-editor-dot.from { border: 3px solid var(--primary); }
+.route-editor-dot.stop { background: var(--secondary); border: 1.5px solid var(--foreground); color: var(--foreground); }
+.route-editor-dot.to { background: var(--primary); border-radius: 50% 50% 50% 0; transform: rotate(-45deg); }
+.route-editor-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.route-editor-field span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.route-editor-field svg { flex-shrink: 0; color: var(--blue); }
+.route-editor-field.empty { color: var(--amber); border-color: var(--amber); border-style: dashed; }
+.route-editor-remove,
+.route-editor-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.route-editor-remove { width: 28px; height: 28px; margin-left: -4px; }
+.route-editor-icon:hover,
+.route-editor-remove:hover { background: var(--secondary); color: var(--foreground); }
+.route-editor-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+.route-editor-side { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; }
+.route-editor-add {
+  grid-column: 1 / -1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 22px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.route-editor-add:disabled { color: var(--muted-foreground); cursor: default; }
+@media (min-width: 900px) {
+  .route-editor { right: auto; width: 420px; }
+}
+
+.map-search-back {
+  display: flex;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.map-search-result:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.map-pick-banner {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--primary);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.35);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.map-pick-banner svg { color: var(--primary); flex-shrink: 0; }
+.map-pick-banner span { flex: 1; }
+.map-pick-banner button {
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Route points on the map: a chosen start (hollow ring) and numbered stops.
+   Centred on their point, like .map-user-dot. */
+.map-pin-start,
+.map-pin-stop {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.map-pin-start {
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border: 5px solid var(--primary);
+}
+.map-pin-stop {
+  width: 22px;
+  height: 22px;
+  background: #fff;
+  border: 2px solid #050d0b;
+  color: #050d0b;
+  font: 700 11px/18px var(--font-body);
+  text-align: center;
+}
+
+.route-preview-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.route-preview-note svg { flex-shrink: 0; margin-top: 2px; color: var(--amber); }
+
+.nav-banner-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.8;
+  margin-bottom: 2px;
+}
+.nav-then.preview-note { display: flex; align-items: center; gap: 6px; }
+.nav-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }

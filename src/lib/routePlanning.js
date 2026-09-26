@@ -11,9 +11,16 @@ const GEM_CORRIDOR_M = 400
 
 export const ROUTE_TAG_LABEL = { recommended: 'Recommended', fastest: 'Fastest', best_road: 'Best Road' }
 
-export async function planRoutes(origin, destination) {
+// The routes edge function accepts this many stops on the way (MAX_STOPS).
+export const MAX_STOPS = 5
+
+const point = (p) => ({ lat: p.lat, lng: p.lng })
+
+// `stops` are places to stop at on the way, in order. With stops Google gives
+// a single route rather than alternatives.
+export async function planRoutes(origin, destination, stops = []) {
   const { data, error } = await supabase.functions.invoke('routes', {
-    body: { origin: { lat: origin.lat, lng: origin.lng }, destination },
+    body: { origin: point(origin), destination: point(destination), stops: stops.map(point) },
   })
   if (error) throw new Error(await edgeErrorMessage(error))
   return data.options.map((o) => ({ ...o, path: decodePolyline(o.encodedPolyline) }))

@@ -10,6 +10,8 @@ export interface LatLng {
 // *start* of the step ("Turn left onto Ngong Rd"), then you drive distanceM.
 // `detail` is Google's extra text for the step, e.g. "Pass by Sarit Centre (on
 // the left)" or "Destination will be on the right" — shown, not spoken.
+// `leg` is which part of the trip the step is on: 0 up to the first stop, and
+// so on, so the app can tell when a stop has been reached.
 export interface GoogleStep {
   instruction: string
   detail: string
@@ -18,6 +20,7 @@ export interface GoogleStep {
   durationS: number
   start: LatLng
   end: LatLng
+  leg: number
 }
 
 // Live traffic along the route: a stretch of the polyline, by point index
@@ -94,7 +97,7 @@ function splitInstructions(text: string | undefined): { instruction: string; det
 }
 
 export function parseSteps(route: ApiRoute): GoogleStep[] {
-  return (route.legs ?? []).flatMap((leg) =>
+  return (route.legs ?? []).flatMap((leg, legIndex) =>
     (leg.steps ?? []).map((s) => ({
       ...splitInstructions(s.navigationInstruction?.instructions),
       maneuver: s.navigationInstruction?.maneuver ?? 'STRAIGHT',
@@ -102,6 +105,7 @@ export function parseSteps(route: ApiRoute): GoogleStep[] {
       durationS: seconds(s.staticDuration),
       start: toLatLng(s.startLocation),
       end: toLatLng(s.endLocation),
+      leg: legIndex,
     })),
   )
 }
@@ -118,11 +122,15 @@ export function parseTraffic(route: ApiRoute): TrafficInterval[] {
 // withTraffic adds live traffic along each route (TRAFFIC_ON_POLYLINE). Google
 // bills that request at its higher "Advanced" rate, so it can be switched off
 // with the ROUTES_TRAFFIC_ON_POLYLINE secret (see routes/index.ts).
+//
+// `stops` are places to stop at on the way, in order. Google doesn't return
+// alternative routes for a trip with stops, so that gives a single route.
+// Up to 10 stops stays on the same billing SKU; routes/index.ts caps it lower.
 export async function computeRoutes(
   apiKey: string,
   origin: LatLng,
   destination: LatLng,
-  { withTraffic = true }: { withTraffic?: boolean } = {},
+  { withTraffic = true, stops = [] }: { withTraffic?: boolean; stops?: LatLng[] } = {},
 ): Promise<GoogleRoute[]> {
   const response = await fetch(ENDPOINT, {
     method: 'POST',
@@ -134,9 +142,10 @@ export async function computeRoutes(
     body: JSON.stringify({
       origin: waypoint(origin),
       destination: waypoint(destination),
+      ...(stops.length > 0 ? { intermediates: stops.map(waypoint) } : {}),
       travelMode: 'DRIVE',
       routingPreference: 'TRAFFIC_AWARE',
-      computeAlternativeRoutes: true,
+      computeAlternativeRoutes: stops.length === 0,
       polylineEncoding: 'ENCODED_POLYLINE',
       ...(withTraffic ? { extraComputations: ['TRAFFIC_ON_POLYLINE'] } : {}),
     }),

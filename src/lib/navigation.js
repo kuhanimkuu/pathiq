@@ -41,7 +41,17 @@ export function buildNavModel(route) {
   let acc = 0
   const stepEnds = steps.map((st) => (acc += (st.distanceM * total) / stepSum))
 
-  return { lat0, path, pts, cum, total, steps, stepEnds, durationS: route.durationS, destination: path[path.length - 1] }
+  // Where each stop on the way is, as distance along the route: the end of
+  // the last step of each leg except the final one. Steps from routes cached
+  // before stops existed have no `leg`; those are single-leg routes.
+  const legEnds = []
+  steps.forEach((st, i) => {
+    const leg = st.leg ?? 0
+    const nextLeg = steps[i + 1]?.leg ?? leg
+    if (nextLeg !== leg) legEnds.push(stepEnds[i])
+  })
+
+  return { lat0, path, pts, cum, total, steps, stepEnds, legEnds, durationS: route.durationS, destination: path[path.length - 1] }
 }
 
 // The stretch of the route between two distances along it, as [{ lat, lng }],

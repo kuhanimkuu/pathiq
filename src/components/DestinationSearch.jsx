@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Search, X, MapPin, History, Bookmark } from 'lucide-react'
+import { Search, X, MapPin, History, Bookmark, ArrowLeft } from 'lucide-react'
 import { newSearchSession, searchPlaces, resolvePlace } from '../lib/placeSearch'
 import { loadGoogleMaps } from '../lib/googleMaps'
 import { GemBadge } from './PlaceIcons'
@@ -16,9 +16,26 @@ const DEBOUNCE_MS = 350
 //   onPickGem(gem)                  a nearby PathIQ gem was chosen (show it)
 //   onPickPlace({ lat, lng, name }) somewhere to route to: a Google place, a
 //                                   recent destination or a saved gem
-function DestinationSearch({ gems = [], recent = [], saved = [], near, onPickGem, onPickPlace, placeholder }) {
+// When choosing one end of a route or a stop (the route editor on the map):
+//   onCancel     shows a back arrow that closes the search
+//   extraItems   one-tap choices above Recent, e.g. "Your location" and
+//                "Choose on the map": [{ key, icon, title, sub, disabled, onPick }]
+//   gemsAsPlaces a matching gem is picked as a place, not shown on the map
+function DestinationSearch({
+  gems = [],
+  recent = [],
+  saved = [],
+  near,
+  onPickGem,
+  onPickPlace,
+  placeholder,
+  autoFocus = false,
+  onCancel,
+  extraItems = [],
+  gemsAsPlaces = false,
+}) {
   const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(autoFocus)
   const [results, setResults] = useState({ query: '', items: [] })
   const [error, setError] = useState('')
   const sessionRef = useRef(null)
@@ -76,7 +93,13 @@ function DestinationSearch({ gems = [], recent = [], saved = [], near, onPickGem
 
   function pickGem(gem) {
     reset()
-    onPickGem?.(gem)
+    if (gemsAsPlaces) onPickPlace?.({ lat: gem.lat, lng: gem.lng, name: gem.name })
+    else onPickGem?.(gem)
+  }
+
+  function pickExtra(item) {
+    reset()
+    item.onPick()
   }
 
   async function pickPlace(item) {
@@ -96,8 +119,15 @@ function DestinationSearch({ gems = [], recent = [], saved = [], near, onPickGem
   return (
     <div className="dest-search floating">
       <div className="map-search-bar">
-        <Search size={16} color="var(--muted-foreground)" />
+        {onCancel ? (
+          <button className="map-search-back" onMouseDown={(e) => e.preventDefault()} onClick={onCancel} aria-label="Back">
+            <ArrowLeft size={16} />
+          </button>
+        ) : (
+          <Search size={16} color="var(--muted-foreground)" />
+        )}
         <input
+          autoFocus={autoFocus}
           placeholder={placeholder}
           value={query}
           onChange={(e) => {
@@ -106,8 +136,8 @@ function DestinationSearch({ gems = [], recent = [], saved = [], near, onPickGem
           }}
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
-          onKeyDown={(e) => e.key === 'Escape' && reset()}
-          aria-label="Search for a destination"
+          onKeyDown={(e) => e.key === 'Escape' && (onCancel ? onCancel() : reset())}
+          aria-label={placeholder}
         />
         {query && (
           <button className="map-search-clear" onMouseDown={(e) => e.preventDefault()} onClick={reset} aria-label="Clear search">
@@ -116,8 +146,17 @@ function DestinationSearch({ gems = [], recent = [], saved = [], near, onPickGem
         )}
       </div>
 
-      {open && !trimmed && !error && (recent.length > 0 || saved.length > 0) && (
+      {open && !trimmed && !error && (extraItems.length > 0 || recent.length > 0 || saved.length > 0) && (
         <div className="map-search-results" onMouseDown={(e) => e.preventDefault()}>
+          {extraItems.map((item) => (
+            <button key={item.key} className="map-search-result" disabled={item.disabled} onClick={() => pickExtra(item)}>
+              <span className="map-search-result-icon">{item.icon}</span>
+              <span>
+                <span className="map-search-result-title">{item.title}</span>
+                {item.sub && <span className="map-search-result-sub">{item.sub}</span>}
+              </span>
+            </button>
+          ))}
           {recent.length > 0 && <div className="map-search-heading"><History size={12} /> Recent</div>}
           {recent.map((r) => (
             <button key={`r:${r.lat},${r.lng},${r.name}`} className="map-search-result" onClick={() => pickQuick(r)}>

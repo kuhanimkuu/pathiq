@@ -9,7 +9,7 @@ create table public.pinned_places (
   user_id    uuid not null default auth.uid() references public.profiles (id) on delete cascade,
   name       text not null check (char_length(btrim(name)) between 1 and 80),
   label      public.pin_label not null default 'other',
-  location   geography(point, 4326) not null,
+  location   extensions.geography(point, 4326) not null, -- PostGIS lives in the extensions schema
   created_at timestamptz not null default now()
 );
 

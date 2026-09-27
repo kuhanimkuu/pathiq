@@ -41,6 +41,13 @@ try {
   r = await req(A.token, 'POST', '/rest/v1/rpc/compute_iq_score', { p_user: B.id })
   ok('users cannot call compute_iq_score', r.status >= 400, `${r.status} ${r.text.slice(0, 80)}`)
 
+  // The landing page's map: anon gets map points only, never who submitted them.
+  r = await req(null, 'POST', '/rest/v1/rpc/public_map_points', {})
+  ok('anon can read public map points', r.status === 200 && Array.isArray(r.json?.gems) && Array.isArray(r.json?.reports), `${r.status} ${r.text.slice(0, 80)}`)
+  const allowed = { gems: ['id', 'name', 'category', 'lng', 'lat', 'distance_m'], reports: ['id', 'type', 'severity', 'lng', 'lat', 'distance_m'] }
+  const extra = ['gems', 'reports'].flatMap((k) => (r.json?.[k] ?? []).flatMap((row) => Object.keys(row).filter((f) => !allowed[k].includes(f))))
+  ok('public map points expose no other fields', extra.length === 0, [...new Set(extra)].join(', '))
+
   // ── trips ──
   const base = { user_id: A.id, destination: point, destination_name: 'Test', road_quality: 80 }
   r = await req(A.token, 'POST', '/rest/v1/trips', { ...base, ended_at: new Date().toISOString(), arrived: true })

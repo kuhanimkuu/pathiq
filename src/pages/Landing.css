@@ -124,6 +124,25 @@
 .stat-label { font-size: 12.5px; color: var(--text-faint); margin-top: 2px; }
 
 .hero-map { position: relative; display: block; color: inherit; text-decoration: none; }
+/* The real map (sections/HeroMap.jsx) sits exactly over the drawn one, which
+   shows while it loads or if Google can't load. */
+.hero-map-live {
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.hero-map-live.ready { opacity: 1; }
+.map-svg.faded { visibility: hidden; }
+.hero-alert { text-decoration: none; z-index: 2; }
+.hero-live-card { display: block; color: inherit; text-decoration: none; min-width: 0; }
+.hero-live-card .hero-route-card-label { display: flex; align-items: center; gap: 6px; }
+.hero-live-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-dim); margin-top: 8px; }
+.hero-live-row b { color: var(--text); font-size: 17px; }
+.hero-live-card .hero-route-meta { margin: 10px 0 0; }
 .map-svg {
   width: 100%; height: auto;
   background: radial-gradient(ellipse at 60% 40%, #0d1f16 0%, #060b08 70%);
@@ -131,11 +150,14 @@
   border: 1px solid var(--border);
   transition: border-color 0.15s;
 }
-.hero-map:hover .map-svg { border-color: var(--green); }
+.hero-map:hover .map-svg,
+.hero-map:hover .hero-map-live { border-color: var(--green); }
 .map-label { font-size: 11px; fill: var(--text-faint); font-family: inherit; }
 
 .hero-map-cta {
   position: absolute;
+  z-index: 2;
+  text-decoration: none;
   top: 18px; left: 18px;
   background: rgba(9,17,13,0.85);
   border: 1px solid var(--border);
@@ -148,6 +170,7 @@
 
 .hero-route-card {
   position: absolute;
+  z-index: 2;
   bottom: 22px; right: 22px;
   background: rgba(9,17,13,0.92);
   border: 1px solid var(--border);

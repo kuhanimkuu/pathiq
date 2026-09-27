@@ -140,6 +140,29 @@ try {
     ok(`anon cannot call ${fn}`, r.status >= 400, `${r.status}`)
   }
 
+  // ── Pinned places ──
+  r = await req(A.token, 'POST', '/rest/v1/pinned_places', { name: 'Home', label: 'home', location: point })
+  ok('A can pin a place', r.status === 201, `${r.status} ${r.text.slice(0, 120)}`)
+  const pinA = r.json?.[0]
+  r = await req(A.token, 'POST', '/rest/v1/pinned_places', { name: 'Home', label: 'home', location: point, user_id: B.id })
+  ok('cannot pin a place for someone else', r.status >= 400, `${r.status}`)
+  r = await req(B.token, 'GET', `/rest/v1/pinned_places?id=eq.${pinA?.id}&select=*`)
+  ok("B cannot read A's pins", r.status === 200 && r.json.length === 0, JSON.stringify(r.json))
+  r = await req(B.token, 'POST', '/rest/v1/rpc/my_pinned_places', {})
+  ok("my_pinned_places doesn't leak A's pins to B", r.status === 200 && r.json.length === 0, JSON.stringify(r.json))
+  r = await req(B.token, 'PATCH', `/rest/v1/pinned_places?id=eq.${pinA?.id}`, { name: 'Mine now' })
+  ok("B cannot rename A's pin", r.status >= 400 || r.json?.length === 0, `${r.status}`)
+  r = await req(B.token, 'DELETE', `/rest/v1/pinned_places?id=eq.${pinA?.id}`)
+  ok("B cannot remove A's pin", r.status >= 400 || r.json?.length === 0, `${r.status}`)
+  r = await req(A.token, 'POST', '/rest/v1/pinned_places', { name: 'New home', label: 'home', location: point })
+  ok('a second Home is allowed', r.status === 201, `${r.status} ${r.text.slice(0, 120)}`)
+  r = await req(A.token, 'POST', '/rest/v1/rpc/my_pinned_places', {})
+  ok('the old Home becomes a plain pin', r.json?.filter((p) => p.label === 'home').length === 1 && r.json?.length === 2, JSON.stringify(r.json))
+  r = await req(null, 'POST', '/rest/v1/rpc/my_pinned_places', {})
+  ok('anon cannot call my_pinned_places', r.status >= 400, `${r.status}`)
+  r = await req(null, 'GET', '/rest/v1/pinned_places?select=*&limit=1')
+  ok('anon cannot read pinned_places', r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status}`)
+
   // ── Scout submissions and photos ──
   r = await req(B.token, 'POST', '/rest/v1/road_reports', { type: 'pothole', severity: 3, location: point, reported_by: B.id })
   ok('non-Scouts cannot submit road reports', r.status >= 400, `${r.status}`)

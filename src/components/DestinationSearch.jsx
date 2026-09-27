@@ -3,6 +3,7 @@ import { Search, X, MapPin, History, Bookmark, ArrowLeft } from 'lucide-react'
 import { newSearchSession, searchPlaces, resolvePlace } from '../lib/placeSearch'
 import { loadGoogleMaps } from '../lib/googleMaps'
 import { GemBadge } from './PlaceIcons'
+import { PinnedGlyph } from './PinnedIcon'
 
 // Places Autocomplete is billed per request on the browser key, which can't
 // be rate-limited server-side — so search only from 3 characters, and only
@@ -16,6 +17,7 @@ const DEBOUNCE_MS = 350
 //   onPickGem(gem)                  a nearby PathIQ gem was chosen (show it)
 //   onPickPlace({ lat, lng, name }) somewhere to route to: a Google place, a
 //                                   recent destination or a saved gem
+//   pinned        the driver's pinned places, offered first and matched by name
 // When choosing one end of a route or a stop (the route editor on the map):
 //   onCancel     shows a back arrow that closes the search
 //   extraItems   one-tap choices above Recent, e.g. "Your location" and
@@ -25,6 +27,7 @@ function DestinationSearch({
   gems = [],
   recent = [],
   saved = [],
+  pinned = [],
   near,
   onPickGem,
   onPickPlace,
@@ -73,6 +76,12 @@ function DestinationSearch({
       clearTimeout(timer)
     }
   }, [trimmed])
+
+  const pinnedMatches = useMemo(() => {
+    if (!trimmed) return []
+    const q = trimmed.toLowerCase()
+    return pinned.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 3)
+  }, [pinned, trimmed])
 
   const gemMatches = useMemo(() => {
     if (!trimmed) return []
@@ -146,7 +155,7 @@ function DestinationSearch({
         )}
       </div>
 
-      {open && !trimmed && !error && (extraItems.length > 0 || recent.length > 0 || saved.length > 0) && (
+      {open && !trimmed && !error && (extraItems.length > 0 || pinned.length > 0 || recent.length > 0 || saved.length > 0) && (
         <div className="map-search-results" onMouseDown={(e) => e.preventDefault()}>
           {extraItems.map((item) => (
             <button key={item.key} className="map-search-result" disabled={item.disabled} onClick={() => pickExtra(item)}>
@@ -156,6 +165,10 @@ function DestinationSearch({
                 {item.sub && <span className="map-search-result-sub">{item.sub}</span>}
               </span>
             </button>
+          ))}
+          {pinned.length > 0 && <div className="map-search-heading"><PinnedGlyph label="other" size={12} /> Pinned</div>}
+          {pinned.slice(0, 6).map((p) => (
+            <PinnedResult key={'p:' + p.id} place={p} onPick={() => pickQuick(p)} />
           ))}
           {recent.length > 0 && <div className="map-search-heading"><History size={12} /> Recent</div>}
           {recent.map((r) => (
@@ -178,6 +191,9 @@ function DestinationSearch({
         // mousedown is swallowed so picking a result doesn't blur the input
         // (and close the list) before the click lands.
         <div className="map-search-results" onMouseDown={(e) => e.preventDefault()}>
+          {pinnedMatches.map((p) => (
+            <PinnedResult key={'p:' + p.id} place={p} onPick={() => pickQuick(p)} />
+          ))}
           {gemMatches.map((gem) => (
             <button key={gem.id} className="map-search-result" onClick={() => pickGem(gem)}>
               <GemBadge category={gem.category} size={30} />
@@ -200,13 +216,27 @@ function DestinationSearch({
           ))}
           {pending && <div className="map-search-note">Searching…</div>}
           {error && <div className="map-search-note">{error}</div>}
-          {tooShort && gemMatches.length === 0 && !error && <div className="map-search-note">Keep typing…</div>}
-          {!tooShort && !pending && !error && gemMatches.length === 0 && places.length === 0 && (
+          {tooShort && gemMatches.length === 0 && pinnedMatches.length === 0 && !error && <div className="map-search-note">Keep typing…</div>}
+          {!tooShort && !pending && !error && gemMatches.length === 0 && pinnedMatches.length === 0 && places.length === 0 && (
             <div className="map-search-note">No places found.</div>
           )}
         </div>
       )}
     </div>
+  )
+}
+
+const LABEL_TEXT = { home: 'Home', work: 'Work', other: 'Pinned place' }
+
+function PinnedResult({ place, onPick }) {
+  return (
+    <button className="map-search-result" onClick={onPick}>
+      <span className="map-search-result-icon pinned"><PinnedGlyph label={place.label} /></span>
+      <span>
+        <span className="map-search-result-title">{place.name}</span>
+        <span className="map-search-result-sub">{LABEL_TEXT[place.label] ?? 'Pinned place'}</span>
+      </span>
+    </button>
   )
 }
 

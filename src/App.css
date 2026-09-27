@@ -1932,3 +1932,70 @@ html.light .map-alert {
     font-size: 16px;
   }
 }
+
+/* ── Pinned places and sharing (components/PlaceSheet.jsx, PinnedIcon.jsx) ── */
+/* A pinned place on the map: a white badge with the Home / Work / pin glyph,
+   centred on its point, so it reads apart from gems (teardrops) and reports
+   (diamonds). */
+.pin-pinned {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #0B3D91;
+  border: 2px solid #0B3D91;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.pin-pinned.selected { background: #0B3D91; color: #FFFFFF; transform: translate(-50%, -50%) scale(1.15); }
+
+.place-sheet-head { display: flex; align-items: center; gap: 12px; }
+.place-sheet-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  color: var(--blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.place-sheet-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 17px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.place-sheet-sub { font-size: 12.5px; color: var(--muted-foreground); margin-top: 2px; }
+
+.pin-form { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.pin-form .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.pin-form .chip { display: inline-flex; align-items: center; gap: 5px; }
+
+.map-route-here-btn.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); }
+.map-search-result-icon.pinned { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
+
+/* Top of the map, under the search bar: the bottom is where sheets and their buttons are. */
+.map-toast {
+  position: absolute;
+  left: 50%;
+  top: 76px;
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 13.5px;
+  font-weight: 600;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}

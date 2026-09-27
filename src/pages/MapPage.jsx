@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { X, Bookmark, Star, Navigation2, Play, LocateOff, Gem, TriangleAlert, TrafficCone, MapPinPlus, List, Eye, LocateFixed, MapPin, Plus, CircleDot } from 'lucide-react'
+import { X, Bookmark, Star, Navigation2, Play, LocateOff, Gem, TriangleAlert, TrafficCone, MapPinPlus, List, Eye, LocateFixed, MapPin, Plus, Share2, Pin } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
 import { fetchNearbyGems, fetchSavedGemIds, fetchSavedGems, saveGem, unsaveGem, confirmGem, getCurrentPosition } from '../lib/gems'
 import { fetchNearbyRoadReports, reportTypeLabel, severityBand } from '../lib/roadReports'
@@ -18,6 +18,10 @@ import NavigationHud from '../components/NavigationHud'
 import DestinationSearch from '../components/DestinationSearch'
 import RouteEditor from '../components/RouteEditor'
 import RoutePreviewHud from '../components/RoutePreviewHud'
+import PlaceSheet from '../components/PlaceSheet'
+import { PinnedPin } from '../components/PinnedIcon'
+import { fetchPinnedPlaces, pinPlace, updatePinnedPlace, unpinPlace } from '../lib/pinnedPlaces'
+import { shareLocation, parseSharedLocation } from '../lib/share'
 import DirectionsList from '../components/DirectionsList'
 import ManeuverIcon from '../components/ManeuverIcon'
 
@@ -118,6 +122,12 @@ function parseUrlStops(value) {
   }
 }
 
+// What to call a spot when it becomes part of a route.
+function placeName(place) {
+  if (place.kind === 'me') return ME.name
+  return place.name || 'Dropped pin'
+}
+
 function readMuted() {
   try {
     return localStorage.getItem(MUTE_KEY) === '1'
@@ -137,6 +147,8 @@ function MapPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const urlPlan = useRef(parseUrlPlan(searchParams))
+  // A shared location link: `?at=lat,lng&name=…` (see lib/share.js).
+  const sharedAt = useRef(parseSharedLocation(searchParams))
 
   const [position, setPosition] = useState(null)
   const [gems, setGems] = useState([])
@@ -153,7 +165,11 @@ function MapPage() {
 
   // Tapping the map drops a pin (with Route here / Scout actions) rather than
   // planning straight away: a stray tap shouldn't spend a Google Routes call.
-  const [dropped, setDropped] = useState(null) // { lat, lng }
+  // The spot the place sheet is showing: { lat, lng, name?, kind: 'dropped' |
+  // 'shared' | 'me' | 'pinned', pinId?, label?, pinning? }
+  const [dropped, setDropped] = useState(null)
+  const [pinned, setPinned] = useState([]) // the driver's pinned places
+  const [notice, setNotice] = useState('') // brief confirmation, e.g. "Link copied"
   // One-tap destinations in the search box (see DestinationSearch).
   const [quickPicks, setQuickPicks] = useState({ recent: [], saved: [] })
   const routePanelRef = useRef(null)
@@ -268,6 +284,24 @@ function MapPage() {
       // a convenience only; search still works
     }
   }, [])
+  const loadPinned = useCallback(async () => {
+    try {
+      setPinned(await fetchPinnedPlaces())
+    } catch {
+      // pins are a convenience; the map works without them
+    }
+  }, [])
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    fetchPinnedPlaces()
+      .then((rows) => !cancelled && setPinned(rows))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [session])
+
   useEffect(() => {
     if (!session) return
     let cancelled = false
@@ -695,6 +729,16 @@ function MapPage() {
 
   // Arriving with ?to=… — plan it once the map is up, and start navigating
   // straight away with nav=1.
+  // Opened from a shared location link: show that spot.
+  useEffect(() => {
+    if (!mapReady || !sharedAt.current || urlPlan.current) return
+    const at = sharedAt.current
+    sharedAt.current = null
+    setDropped({ ...at, kind: 'shared' })
+    mapRef.current?.setZoom(16)
+    mapRef.current?.panTo(at)
+  }, [mapReady])
+
   useEffect(() => {
     if (!mapReady || !urlPlan.current) return
     const { to, name, routeId, stops, nav: startNav } = urlPlan.current
@@ -752,6 +796,62 @@ function MapPage() {
     const timer = setTimeout(() => setGemAlert((a) => (a?.key === gemAlertKey ? null : a)), GEM_ALERT_MS)
     return () => clearTimeout(timer)
   }, [gemAlertKey])
+
+  function flash(text) {
+    setNotice(text)
+  }
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(''), 2500)
+    return () => clearTimeout(timer)
+  }, [notice])
+
+  async function handleShare(place) {
+    try {
+      const result = await shareLocation(place)
+      if (result === 'copied') flash('Link copied. Paste it into a chat or SMS.')
+    } catch {
+      flash("Couldn't share this place.")
+    }
+  }
+
+  // Pin a spot, or save changes to a pinned place (name, Home / Work / Other).
+  async function handleSavePin(place, { name, label }) {
+    if (place.kind === 'pinned') {
+      await updatePinnedPlace(place.pinId, { name, label })
+      setDropped({ ...place, name, label, pinning: false })
+      flash('Pinned place updated')
+    } else {
+      const pinId = await pinPlace({ name, label, lat: place.lat, lng: place.lng })
+      setDropped({ lat: place.lat, lng: place.lng, name, label, kind: 'pinned', pinId })
+      flash(`Pinned "${name}"`)
+    }
+    loadPinned()
+  }
+
+  async function handleUnpin(pinId) {
+    try {
+      await unpinPlace(pinId)
+      setDropped(null)
+      setPinned((rows) => rows.filter((p) => p.id !== pinId))
+      flash('Place unpinned')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  // "Where am I?": centre on the driver and offer to share or pin the spot.
+  async function showMyLocation() {
+    const here = await currentLivePosition()
+    if (!here) {
+      flash('Location is off. Turn it on to see where you are.')
+      return
+    }
+    setSelected(null)
+    setDropped({ lat: here.lat, lng: here.lng, kind: 'me' })
+    mapRef.current?.setZoom(16)
+    mapRef.current?.panTo(here)
+  }
 
   function handlePickGem(gem) {
     setDropped(null)
@@ -827,6 +927,15 @@ function MapPage() {
       )
     }
 
+    for (const p of pinned) {
+      const isSelected = dropped?.kind === 'pinned' && dropped.pinId === p.id
+      const el = host(p.name, <PinnedPin label={p.label} selected={isSelected} />)
+      add({ lat: p.lat, lng: p.lng }, el, isSelected ? 40 : 24, () => {
+        setSelected(null)
+        setDropped({ lat: p.lat, lng: p.lng, name: p.name, label: p.label, kind: 'pinned', pinId: p.id })
+      })
+    }
+
     for (const incident of visibleIncidents) {
       const onRoute = routeReportIds.has(incident.id)
       const isSelected = selected?.type === 'incident' && selected.id === incident.id
@@ -856,7 +965,7 @@ function MapPage() {
     })
     for (const [pin, label] of [
       [draft?.to && !draft.to.me ? draft.to : null, 'Destination'],
-      [dropped, 'Dropped pin'],
+      [dropped && (dropped.kind === 'dropped' || dropped.kind === 'shared') ? dropped : null, 'Dropped pin'],
     ]) {
       if (!pin) continue
       const dest = document.createElement('div')
@@ -869,7 +978,7 @@ function MapPage() {
       markers.forEach((m) => m.setMap(null))
       setTimeout(() => roots.forEach((r) => r.unmount())) // not during React's own commit
     }
-  }, [mapReady, visibleGems, visibleIncidents, routeGemIds, routeReportIds, draft, dropped, selected, savedIds])
+  }, [mapReady, visibleGems, visibleIncidents, routeGemIds, routeReportIds, draft, dropped, selected, savedIds, pinned])
 
   // Google's live traffic, as an optional layer under ours.
   const trafficRef = useRef(null)
@@ -1161,6 +1270,7 @@ function MapPage() {
               gems={gems}
               recent={quickPicks.recent}
               saved={quickPicks.saved}
+              pinned={pinned}
               near={livePos ?? position}
               placeholder={PICK_PLACEHOLDER[picking.slot]}
               autoFocus
@@ -1191,6 +1301,7 @@ function MapPage() {
               gems={gems}
               recent={quickPicks.recent}
               saved={quickPicks.saved}
+              pinned={pinned}
               near={livePos ?? position}
               placeholder="Where to? Search or tap the map"
               onPickGem={handlePickGem}
@@ -1199,6 +1310,9 @@ function MapPage() {
           )}
 
           <div className="map-layers" role="group" aria-label="Map layers">
+            <button className="map-layer-btn" onClick={showMyLocation} title="My location" aria-label="My location">
+              <LocateFixed size={16} />
+            </button>
             <button
               className={'map-layer-btn' + (layers.gems ? ' active' : '')}
               onClick={() => setLayers((l) => ({ ...l, gems: !l.gems }))}
@@ -1258,6 +1372,14 @@ function MapPage() {
                         {plan.options.length === 1 ? 'route' : 'selected one'}
                       </div>
                     </div>
+                    <button
+                      className="map-route-clear"
+                      onClick={() => setDropped({ ...plan.destination, name: plan.destinationName, kind: 'shared', pinning: true })}
+                      aria-label="Pin this destination"
+                      title="Pin this destination"
+                    >
+                      <Pin size={16} />
+                    </button>
                     <button className="map-route-clear" onClick={clearDirections} aria-label="Clear route">
                       <X size={16} />
                     </button>
@@ -1375,47 +1497,52 @@ function MapPage() {
       )}
 
       {!nav && dropped && !selectedGem && !selectedIncident && (
-        <>
-          <button className="map-sheet-handle" onClick={() => setDropped(null)} aria-label="Close">
-            <X size={16} />
-          </button>
-          <div className="map-sheet">
-            <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>Dropped pin</div>
-            <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 2 }}>
-              {dropped.lat.toFixed(5)}, {dropped.lng.toFixed(5)}
-              {livePos ? ` · ${(distanceM(livePos, dropped) / 1000).toFixed(1)} km away` : ''}
-            </div>
-            <div className="map-pin-actions">
-              <button className="map-route-start" disabled={routing} onClick={() => planTo(dropped, 'Dropped pin')}>
-                <Navigation2 size={13} /> {draft?.to ? 'Make destination' : 'Route here'}
+        <PlaceSheet
+          key={`${dropped.kind}:${dropped.pinId ?? ''}:${dropped.lat},${dropped.lng}:${dropped.pinning ? 1 : 0}`}
+          place={dropped}
+          startPinning={!!dropped.pinning}
+          subtitle={livePos && dropped.kind !== 'me' ? `${(distanceM(livePos, dropped) / 1000).toFixed(1)} km away` : ''}
+          routeLabel={draft?.to ? 'Make destination' : 'Route here'}
+          routing={routing}
+          onClose={() => setDropped(null)}
+          onRoute={dropped.kind === 'me' ? null : () => planTo(dropped, placeName(dropped))}
+          onAddStop={canAddStop && dropped.kind !== 'me' ? () => fillSlot({ slot: 'stop' }, { ...dropped, name: placeName(dropped) }) : null}
+          onStart={() => fillSlot({ slot: 'from' }, dropped.kind === 'me' ? ME : { ...dropped, name: placeName(dropped) })}
+          // "Your location" would mean the recipient's own spot to them, so it goes out unnamed ("Shared location").
+          onShare={() =>
+            handleShare({
+              lat: dropped.lat,
+              lng: dropped.lng,
+              name: dropped.kind === 'dropped' || dropped.kind === 'me' ? '' : placeName(dropped),
+              title: dropped.kind === 'me' ? 'My location' : undefined,
+            })
+          }
+          onSavePin={(fields) => handleSavePin(dropped, fields)}
+          onUnpin={() => handleUnpin(dropped.pinId)}
+        >
+          {isScout && dropped.kind !== 'pinned' && (
+            <>
+              <button
+                className="map-route-here-btn"
+                onClick={() => navigate(`/app/scout?form=report&lat=${dropped.lat.toFixed(6)}&lng=${dropped.lng.toFixed(6)}`)}
+              >
+                <TriangleAlert size={13} /> Report a road issue here
               </button>
-              {canAddStop && (
-                <button className="map-route-here-btn" onClick={() => fillSlot({ slot: 'stop' }, { ...dropped, name: 'Dropped pin' })}>
-                  <Plus size={13} /> Add as stop
-                </button>
-              )}
-              <button className="map-route-here-btn" onClick={() => fillSlot({ slot: 'from' }, { ...dropped, name: 'Dropped pin' })}>
-                <CircleDot size={13} /> Start here
+              <button
+                className="map-route-here-btn"
+                onClick={() => navigate(`/app/scout?form=gem&lat=${dropped.lat.toFixed(6)}&lng=${dropped.lng.toFixed(6)}`)}
+              >
+                <MapPinPlus size={13} /> Add a gem here
               </button>
-              {isScout && (
-                <>
-                  <button
-                    className="map-route-here-btn"
-                    onClick={() => navigate(`/app/scout?form=report&lat=${dropped.lat.toFixed(6)}&lng=${dropped.lng.toFixed(6)}`)}
-                  >
-                    <TriangleAlert size={13} /> Report a road issue here
-                  </button>
-                  <button
-                    className="map-route-here-btn"
-                    onClick={() => navigate(`/app/scout?form=gem&lat=${dropped.lat.toFixed(6)}&lng=${dropped.lng.toFixed(6)}`)}
-                  >
-                    <MapPinPlus size={13} /> Add a gem here
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </>
+            </>
+          )}
+        </PlaceSheet>
+      )}
+
+      {notice && (
+        <p className="map-toast" role="status">
+          {notice}
+        </p>
       )}
 
       {(selectedGem || selectedIncident) && (
@@ -1465,6 +1592,12 @@ function MapPage() {
                           <Plus size={13} /> Add as stop
                         </button>
                       )}
+                      <button
+                        className="map-route-here-btn"
+                        onClick={() => handleShare({ lat: selectedGem.lat, lng: selectedGem.lng, name: selectedGem.name })}
+                      >
+                        <Share2 size={13} /> Share
+                      </button>
                     </div>
                   )}
                 </div>

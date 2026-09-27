@@ -15,7 +15,7 @@
   --secondary: #0F1E1A;
   --secondary-foreground: #A0B8B0;
   --muted: #0D1915;
-  --muted-foreground: #6B8880;
+  --muted-foreground: #7A968D; /* 4.5:1+ even on tinted cards */
   --accent: #00C9A7;
   --accent-foreground: #050D0B;
   --border: rgba(255, 255, 255, 0.08);
@@ -32,21 +32,30 @@
   --red: #ef4444;
 }
 
+/* Light: the dark theme's teal, amber, blue, purple and red are too pale on
+   white, so each has a deeper light-mode value. All of them (and white text
+   on --primary / --red) pass WCAG AA, 4.5:1, on --background, --card and
+   --secondary. */
 html.light {
   --background: #F0F5F3;
   --foreground: #0D1915;
   --card: #FFFFFF;
   --card-foreground: #0D1915;
-  --primary: #00A88C;
+  --primary: #00735F;
   --primary-foreground: #FFFFFF;
   --secondary: #E4EDE9;
   --secondary-foreground: #2A3D36;
   --muted: #E8EFEC;
-  --muted-foreground: #5A7268;
-  --accent: #00A88C;
+  --muted-foreground: #4F665D;
+  --accent: #00735F;
   --accent-foreground: #FFFFFF;
-  --border: rgba(0, 0, 0, 0.10);
-  --ring: #00A88C;
+  --border: rgba(0, 0, 0, 0.12);
+  --ring: #00735F;
+
+  --amber: #A34A06;
+  --blue: #1D4ED8;
+  --purple: #6D28D9;
+  --red: #B91C1C;
 }
 
 * {

@@ -1192,7 +1192,7 @@ function MapPage() {
               recent={quickPicks.recent}
               saved={quickPicks.saved}
               near={livePos ?? position}
-              placeholder="Where to? Search a place or gem, or tap the map…"
+              placeholder="Where to? Search or tap the map"
               onPickGem={handlePickGem}
               onPickPlace={(place) => planTo({ lat: place.lat, lng: place.lng }, place.name)}
             />
@@ -1325,7 +1325,7 @@ function MapPage() {
                         className="map-route-start route-panel-start"
                         onClick={() => startNavigation(selectedRoute, plan)}
                       >
-                        <Play size={14} fill="currentColor" /> Start · {routeLabel(selectedRoute)}
+                        <Play size={14} fill="currentColor" /> Start
                       </button>
                     ) : (
                       <button

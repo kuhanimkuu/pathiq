@@ -9,7 +9,7 @@ import './index.css'
 import App from './App.jsx'
 
 // Applied before the first render so there's no flash of the wrong theme.
-applyTheme(getInitialTheme())
+applyTheme(getInitialTheme(), { persist: false })
 
 // Offline app shell (public/sw.js). Production only — in dev it would cache
 // Vite's unbundled modules and fight hot reload.

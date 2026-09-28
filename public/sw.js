@@ -9,7 +9,7 @@
 //
 // Bump CACHE when the shell list changes; old caches are removed on activate.
 
-const CACHE = 'pathiq-shell-v1'
+const CACHE = 'pathiq-shell-v2' // v2: new logo and icons
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg', '/icons/icon-192.png', '/icons/icon-512.png']
 
 self.addEventListener('install', (event) => {

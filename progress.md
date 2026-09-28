@@ -54,6 +54,8 @@ What's left is mostly **decisions and accounts only David's team can set up** (s
 - **Profile:** guest upgrade, Become a Scout, notifications toggle (saved on the profile, asks the browser for permission), gem-alert settings, Install app, dark mode.
 - **Scouts** (`/app/scout`): road reports and gems with an optional photo (shrunk on the phone, private bucket). **Admins** (`/app/admin`) review them with a photo preview.
 
+**Logo** (`src/components/Logo.jsx`): a road winding up to an amber Hidden Gem on the teal tile, with the "PathIQ Navigators" wordmark. Used in the app top bar, site nav, footer and sign-in modal. The same drawing is in `public/favicon.svg` (simplified for tab size), `public/icons/` (app icons, maskable icon, notification badge) and `public/og-image.png` (link previews; the og:image URL is relative, so make it absolute once the production domain is known).
+
 **Installable app:** manifest, icons, and a service worker that caches the app shell so the app opens with no signal. Verified: Chrome reports it installable, and it opens offline.
 
 **Marketing site:** `/`, `/map`, `/hidden-gems`, `/scout-program`, `/developers`, `/pricing`, `/privacy`, `/terms`. Mobile menu below 980px.

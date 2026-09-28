@@ -48,7 +48,7 @@ export async function notifyIfHidden(title, body) {
   try {
     const registration = await navigator.serviceWorker?.getRegistration()
     if (registration) {
-      await registration.showNotification(title, { body, icon: '/icons/icon-192.png', tag: 'pathiq-gem' })
+      await registration.showNotification(title, { body, icon: '/icons/icon-192.png', badge: '/icons/badge-72.png', tag: 'pathiq-gem' })
     } else {
       new Notification(title, { body, icon: '/icons/icon-192.png' })
     }

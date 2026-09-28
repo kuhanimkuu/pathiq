@@ -3,6 +3,7 @@ import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
 import '../Landing.css'
+import Logo from '../../components/Logo'
 
 // Map-first, kept minimal for the casual driver — no Pricing or Developers
 // here, those are for the developer/business tiers, not the main nav. Road
@@ -102,8 +103,7 @@ function MarketingLayout() {
               &times;
             </button>
             <div className="brand auth-brand">
-              <span className="brand-mark" />
-              <span className="brand-name">PathIQ Navigators</span>
+              <Logo size={30} />
             </div>
 
             {authView === 'signin' && (
@@ -162,9 +162,8 @@ function MarketingLayout() {
       {/* NAV */}
       <header className="nav">
         <div className="nav-inner">
-          <Link to="/" className="brand">
-            <span className="brand-mark" />
-            <span className="brand-name">PathIQ Navigators</span>
+          <Link to="/" className="brand" aria-label="PathIQ Navigators home">
+            <Logo size={32} />
           </Link>
           <nav className="nav-links">
             {navLinks.map((link) => (
@@ -210,8 +209,7 @@ function MarketingLayout() {
         <div className="footer-top">
           <div className="footer-brand">
             <div className="brand">
-              <span className="brand-mark" />
-              <span className="brand-name">PathIQ Navigators</span>
+              <Logo size={32} />
             </div>
             <p>Kenya&apos;s most intelligent navigation and geographic data platform.</p>
             <div className="tag-row">

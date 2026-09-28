@@ -1,9 +1,12 @@
+import { Link } from 'react-router-dom'
+import Logo from './Logo'
+
 function TopBar() {
   return (
     <header className="top-bar">
-      <div className="top-bar-logo">
-        PathIQ <span>Navigators</span>
-      </div>
+      <Link to="/app" className="top-bar-logo" aria-label="PathIQ Navigators home">
+        <Logo size={30} />
+      </Link>
     </header>
   )
 }

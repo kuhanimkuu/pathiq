@@ -275,16 +275,20 @@
   border-bottom: 1px solid var(--border);
 }
 
-.top-bar-logo {
+.top-bar-logo { color: inherit; text-decoration: none; }
+
+/* The logo (components/Logo.jsx): mark + "PathIQ Navigators" wordmark. */
+.logo { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.logo-mark { flex-shrink: 0; display: block; }
+.logo-name {
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 18px;
-  letter-spacing: -0.3px;
+  letter-spacing: -0.4px;
+  color: var(--foreground);
 }
-
-.top-bar-logo span {
-  color: var(--primary);
-}
+.logo-iq { color: var(--primary); }
+.logo-sub { font-weight: 500; color: var(--muted-foreground); }
 
 /* ── TAB BAR (mobile: bottom bar. desktop: left sidebar — see breakpoint) ── */
 .tab-bar {

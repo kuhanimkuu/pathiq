@@ -7,6 +7,7 @@ import { loadActiveTrip, resumeUrl } from '../lib/activeTrip'
 import { formatDuration } from '../lib/routePlanning'
 import { formatDistance } from '../lib/navigation'
 import { fetchNearbyGems, getCurrentPosition } from '../lib/gems'
+import { locationHelp } from '../lib/locationHelp'
 import { fetchNearbyRoadReports, reportTypeLabel, timeAgo } from '../lib/roadReports'
 import { GemBadge, ReportBadge } from '../components/PlaceIcons'
 import { gemStyle } from '../lib/placeStyles'
@@ -18,7 +19,7 @@ function Home() {
   const [gems, setGems] = useState([])
   const [incidents, setIncidents] = useState([])
   const [loading, setLoading] = useState(true)
-  const [usingFallbackLocation, setUsingFallbackLocation] = useState(false)
+  const [usingFallbackLocation, setUsingFallbackLocation] = useState(null) // the reason, when there's no fix
   const [error, setError] = useState('')
   const [trip] = useState(loadActiveTrip)
 
@@ -37,7 +38,7 @@ function Home() {
       try {
         const position = await getCurrentPosition()
         if (cancelled) return
-        setUsingFallbackLocation(position.isFallback)
+        setUsingFallbackLocation(position.isFallback ? position.reason : null)
         const [gemRows, incidentRows] = await Promise.all([
           fetchNearbyGems(position.lat, position.lng),
           fetchNearbyRoadReports(position.lat, position.lng),
@@ -118,7 +119,8 @@ function Home() {
       {error && <p className="auth-error">{error}</p>}
       {usingFallbackLocation && (
         <p className="list-row-sub" style={{ marginBottom: 12 }}>
-          Location unavailable — showing results around Nairobi CBD instead.
+          <b>{locationHelp(usingFallbackLocation).title}.</b> {locationHelp(usingFallbackLocation).detail} Showing
+          results around Nairobi CBD for now.
         </p>
       )}
 

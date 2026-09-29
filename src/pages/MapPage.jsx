@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { X, Bookmark, Star, Navigation2, Play, LocateOff, Gem, TriangleAlert, TrafficCone, MapPinPlus, List, Eye, LocateFixed, MapPin, Plus, Share2, Pin } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
-import { fetchNearbyGems, fetchSavedGemIds, fetchSavedGems, saveGem, unsaveGem, confirmGem, getCurrentPosition } from '../lib/gems'
+import { fetchNearbyGems, fetchSavedGemIds, fetchSavedGems, saveGem, unsaveGem, confirmGem, getCurrentPosition, locationErrorReason } from '../lib/gems'
+import { locationHelp } from '../lib/locationHelp'
 import { fetchNearbyRoadReports, reportTypeLabel, severityBand } from '../lib/roadReports'
 import { planRoutes, fetchRouteCorridor, formatDuration, routeLabel, MAX_STOPS } from '../lib/routePlanning'
 import { loadGoogleMaps, createPathiqMap, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
@@ -42,7 +43,7 @@ const LIVE_START_M = 150
 
 // "Your location" as a route point: resolved to the latest GPS fix when planning.
 const ME = { me: true, name: 'Your location' }
-const PICK_PLACEHOLDER = { from: 'Choose starting point', to: 'Choose destination', stop: 'Add a stop' }
+const PICK_PLACEHOLDER = { from: 'Search for a starting point…', to: 'Search for a destination…', stop: 'Search for a stop…' }
 const PICK_ON_MAP_TEXT = { from: 'the starting point', to: 'the destination', stop: 'a stop' }
 
 const categories = [
@@ -314,13 +315,22 @@ function MapPage() {
   }, [session])
 
   // Your live position for planning: the latest GPS fix, or a fresh attempt
-  // (which is also when the browser asks for permission). Null if location is off.
+  // (which is also when the browser asks for permission). Null if there's no
+  // fix; the reason is kept on `position` for the location notice.
   async function currentLivePosition() {
-    if (livePos) return livePos
-    const pos = await getCurrentPosition({ timeoutMs: 6000 })
-    if (pos.isFallback) return null
+    return (await locateNow()).live
+  }
+
+  // { live: position or null, reason } — reason says why there's no fix.
+  async function locateNow() {
+    if (livePos) return { live: livePos, reason: null }
+    const pos = await getCurrentPosition({ timeoutMs: 8000 })
+    if (pos.isFallback) {
+      setPosition((p) => (!p || p.isFallback ? { ...(p ?? pos), reason: pos.reason } : p))
+      return { live: null, reason: pos.reason }
+    }
     setPosition(pos)
-    return pos
+    return { live: pos, reason: null }
   }
 
   // Sets the route being planned and, once it has a start and a destination,
@@ -354,7 +364,7 @@ function MapPage() {
           setDraft(cleared)
           setPlan(null)
           setPicking({ slot: cleared.from ? 'to' : 'from' })
-          setRouteError("Your location isn't available. Choose a place instead, or turn location on.")
+          setRouteError(`${locationHelp(latest.current.position?.reason).title}. Choose a starting place instead.`)
           return null
         }
         points.forEach((p, i) => p.me && (points[i] = { ...here, name: ME.name, me: true }))
@@ -752,12 +762,16 @@ function MapPage() {
   // route starts from where the driver is now rather than where they were
   // when the page loaded, and turning location on later is picked up.
   useEffect(() => {
-    if (!('geolocation' in navigator)) return
+    // Insecure pages never get location; getCurrentPosition already reported why.
+    if (!('geolocation' in navigator) || !window.isSecureContext) return
     const id = navigator.geolocation.watchPosition(
       (p) => latest.current.handleFix({ lat: p.coords.latitude, lng: p.coords.longitude, isFallback: false }),
-      () => {
+      (err) => {
+        const reason = locationErrorReason(err)
+        // Keep the notice's reason current (e.g. permission denied after a slow first try).
+        setPosition((p) => (p?.isFallback ? { ...p, reason } : p))
         const n = latest.current.nav
-        if (n && n.status !== 'arrived') setNavError('Live location unavailable — allow location access to navigate.')
+        if (n && n.status !== 'arrived') setNavError(`${locationHelp(reason).title}. Navigation needs your live location.`)
       },
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
     )
@@ -842,9 +856,9 @@ function MapPage() {
 
   // "Where am I?": centre on the driver and offer to share or pin the spot.
   async function showMyLocation() {
-    const here = await currentLivePosition()
+    const { live: here, reason } = await locateNow()
     if (!here) {
-      flash('Location is off. Turn it on to see where you are.')
+      flash(locationHelp(reason).title)
       return
     }
     setSelected(null)
@@ -1276,6 +1290,7 @@ function MapPage() {
               autoFocus
               gemsAsPlaces
               extraItems={pickExtras}
+              hint="Type a place, address or gem above, or pick one below"
               onCancel={() => (draft ? setPicking(null) : clearDirections())}
               onPickPlace={(place) => fillSlot(picking, place)}
             />
@@ -1480,11 +1495,12 @@ function MapPage() {
       )}
 
       {!nav && !loading && position?.isFallback && !draft && !dropped && (
-        <div className="map-location-notice">
+        // Says *why* there's no location and how to fix it, not just "off".
+        <div className="map-location-notice" role="status">
           <LocateOff size={14} />
           <span>
-            Location is off, so this shows central Nairobi. You can still plan a route: choose a destination, then a
-            starting point. Turn location on to navigate from where you are.{' '}
+            <b>{locationHelp(position.reason).title}.</b> {locationHelp(position.reason).detail} Meanwhile the map shows
+            central Nairobi, and you can plan a route by choosing a starting point.{' '}
             <Link to="/privacy">How we use location</Link>
           </span>
         </div>

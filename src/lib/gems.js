@@ -57,7 +57,8 @@ export async function confirmGem(userId, gemId, rating = null) {
 
 // Requests the browser's geolocation, resolving to the fallback location
 // (rather than rejecting) if it's denied, unavailable, or times out — callers
-// don't need two code paths for "no location".
+// don't need two code paths for "no location". The fallback carries
+// `reason` (see lib/locationHelp.js) so the app can say what to fix.
 //
 // The PositionOptions `timeout` alone isn't enough: Chrome doesn't count time
 // spent waiting on an unanswered permission prompt against it, so if the
@@ -65,23 +66,37 @@ export async function confirmGem(userId, gemId, rating = null) {
 // callback and this would hang forever. Racing a plain setTimeout guarantees
 // it always settles.
 export function getCurrentPosition({ timeoutMs = 8000 } = {}) {
+  const fallback = (reason) => ({ ...FALLBACK_LOCATION, isFallback: true, reason })
   const geolocationResult = new Promise((resolve) => {
+    // Browsers only give location to secure pages; on plain http (e.g. the dev
+    // server opened by IP on a phone) it's refused whatever the phone's settings.
+    if (!window.isSecureContext) {
+      resolve(fallback('insecure'))
+      return
+    }
     if (!('geolocation' in navigator)) {
-      resolve({ ...FALLBACK_LOCATION, isFallback: true })
+      resolve(fallback('unsupported'))
       return
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, isFallback: false }),
-      () => resolve({ ...FALLBACK_LOCATION, isFallback: true }),
+      (err) => resolve(fallback(locationErrorReason(err))),
       { timeout: timeoutMs, maximumAge: 60_000 },
     )
   })
 
   const hardTimeout = new Promise((resolve) => {
-    setTimeout(() => resolve({ ...FALLBACK_LOCATION, isFallback: true }), timeoutMs + 500)
+    setTimeout(() => resolve(fallback('timeout')), timeoutMs + 500)
   })
 
   return Promise.race([geolocationResult, hardTimeout])
+}
+
+// A GeolocationPositionError as one of locationHelp.js's reasons.
+export function locationErrorReason(err) {
+  if (err?.code === 1) return 'denied'
+  if (err?.code === 2) return 'unavailable'
+  return 'timeout'
 }
 
 // Saved gems with coordinates, newest first (for one-tap routing).

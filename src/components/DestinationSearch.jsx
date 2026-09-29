@@ -23,6 +23,7 @@ const DEBOUNCE_MS = 350
 //   extraItems   one-tap choices above Recent, e.g. "Your location" and
 //                "Choose on the map": [{ key, icon, title, sub, disabled, onPick }]
 //   gemsAsPlaces a matching gem is picked as a place, not shown on the map
+//   hint         a line above the one-tap choices, e.g. that you can type to search
 function DestinationSearch({
   gems = [],
   recent = [],
@@ -36,6 +37,7 @@ function DestinationSearch({
   onCancel,
   extraItems = [],
   gemsAsPlaces = false,
+  hint,
 }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(autoFocus)
@@ -128,13 +130,12 @@ function DestinationSearch({
   return (
     <div className="dest-search floating">
       <div className="map-search-bar">
-        {onCancel ? (
+        {onCancel && (
           <button className="map-search-back" onMouseDown={(e) => e.preventDefault()} onClick={onCancel} aria-label="Back">
             <ArrowLeft size={16} />
           </button>
-        ) : (
-          <Search size={16} color="var(--muted-foreground)" />
         )}
+        <Search size={16} color="var(--muted-foreground)" />
         <input
           autoFocus={autoFocus}
           placeholder={placeholder}
@@ -155,8 +156,9 @@ function DestinationSearch({
         )}
       </div>
 
-      {open && !trimmed && !error && (extraItems.length > 0 || pinned.length > 0 || recent.length > 0 || saved.length > 0) && (
+      {open && !trimmed && !error && (hint || extraItems.length > 0 || pinned.length > 0 || recent.length > 0 || saved.length > 0) && (
         <div className="map-search-results" onMouseDown={(e) => e.preventDefault()}>
+          {hint && <div className="map-search-hint"><Search size={13} /> {hint}</div>}
           {extraItems.map((item) => (
             <button key={item.key} className="map-search-result" disabled={item.disabled} onClick={() => pickExtra(item)}>
               <span className="map-search-result-icon">{item.icon}</span>

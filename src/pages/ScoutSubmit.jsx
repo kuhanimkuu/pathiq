@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { submitRoadReport, submitGem, uploadScoutPhoto } from '../lib/scouts'
 import { getCurrentPosition } from '../lib/gems'
+import { locationHelp } from '../lib/locationHelp'
 
 const reportTypes = [
   { value: 'pothole', label: 'Pothole' },
@@ -26,7 +27,7 @@ function LocationField({ position, locating, onLocate }) {
     <div className="location-status">
       {position
         ? `Location: ${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}${
-            position.fromMap ? ' (picked on the map)' : position.isFallback ? ' (fallback — check GPS access)' : ''
+            position.fromMap ? ' (picked on the map)' : position.isFallback ? ` (not your real location: ${locationHelp(position.reason).title.toLowerCase()})` : ''
           }`
         : 'Location not captured yet.'}{' '}
       <button type="button" className="auth-link" onClick={onLocate} disabled={locating}>

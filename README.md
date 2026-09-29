@@ -15,6 +15,7 @@ npm run dev            # http://localhost:5173
 | Script | What it does |
 |---|---|
 | `npm run dev` | Dev server. The service worker is off in dev. |
+| `npm run dev:phone` | Dev server over **HTTPS** on your Wi-Fi, for testing on a phone. Open the `https://192.168…` Network address it prints (accept the one-time certificate warning). The plain `http://` address can't get location on a phone: browsers only share location with https pages. |
 | `npm run build` / `npm run preview` | Production build, and serve it locally (use this to test offline/install). |
 | `npm run lint` | ESLint. |
 | `npm run test:security` | RLS, trip rules, Scout photo rules and rate limits against a real project. Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Use a dev project, since it creates and deletes test users. |

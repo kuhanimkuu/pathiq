@@ -8,7 +8,7 @@ export async function fetchMyScoutApplication(userId) {
   if (!userId) return null
   const { data, error } = await supabase
     .from('scout_applications')
-    .select('id, area, status, created_at, reviewed_at')
+    .select('id, area, status, created_at, reviewed_at, review_note')
     .eq('user_id', userId)
     .maybeSingle()
   if (error) throw error

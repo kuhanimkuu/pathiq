@@ -22,6 +22,7 @@ Every MVP row below is built and verified against the hosted Supabase project (b
 | Home dashboard, Profile/settings | Built, including real trips, gems found, IQ Score and a working notifications toggle |
 | Driver IQ Score | Simple v1: 50% road quality chosen, 30% trips completed, 20% staying on route, last 30 days |
 | Scouts: sign-up, reports with photo + GPS, review queue | Built. Payouts are marked paid by hand (P2 as planned) |
+| Admin tool: add, edit and approve gems and reports | Built as the admin dashboard (`/app/admin`): overview, review queue, gem/report editing, users and roles, batch M-Pesa payouts, pay rates, audit log |
 | Installable app: manifest, icons, service worker, Wake Lock, install prompt | Built. Opens offline |
 | Location permission and privacy | In-app notice when location is off. Privacy and Terms pages drafted, **need legal review** |
 | Seed data: 50–100 verified gems | **Not done:** 11 gems. Needs real, verified places |

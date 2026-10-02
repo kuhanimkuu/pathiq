@@ -52,7 +52,14 @@ What's left is mostly **decisions and accounts only David's team can set up** (s
 - **Trips:** recorded in `trips` (summary only, no GPS trail). A trigger recomputes `iq_score` when a trip ends: 50% road quality of the routes chosen, 30% trips completed, 20% staying on route, over the last 30 days. Home and Profile show real "Trips this month" and "Gems found" (`my_driver_stats`).
 - **Home:** IQ Score, stats, Active route card (resume navigation), incidents and gems near you.
 - **Profile:** guest upgrade, Become a Scout, notifications toggle (saved on the profile, asks the browser for permission), gem-alert settings, Install app, dark mode.
-- **Scouts** (`/app/scout`): road reports and gems with an optional photo (shrunk on the phone, private bucket). **Admins** (`/app/admin`) review them with a photo preview.
+- **Scouts** (`/app/scout`): road reports and gems with an optional photo (shrunk on the phone, private bucket). **Admins** review them in the admin dashboard (below).
+- **Admin dashboard** (`/app/admin`, an Admin tab appears for admins only; code in `src/pages/admin/`, backend in `supabase/migrations/20261002000000_admin_dashboard.sql`):
+  - **Overview:** what needs attention (items waiting and how old, KSh owed), people (accounts, guests, Scouts), trips this week, live gems and reports, and 14-day charts (trips, new accounts, Scout submissions) with a table view.
+  - **Review queue:** gems, road reports and Scout applications, oldest first, with a map of the spot, the photo, who sent it, and a warning when a live gem or report is already within 150 m / 100 m. Reject with a reason (the Scout sees it), bulk approve/reject, keyboard J/K/A/R.
+  - **Gems / Road reports:** every item, not just pending. Search and filter, edit details, move the pin (tap the map or paste coordinates), hide/restore, delete, add new ones straight to the map, and clear a report when the road is fixed.
+  - **Users & Scouts:** search by name, email or ID; trips, IQ Score, approval rate, earned/owed; change role (not your own, and guests can't be made Scout/admin). Sort by top Scouts or most owed.
+  - **Payouts & rates:** one row per Scout owed, paid with one M-Pesa code covering exactly the earnings shown; CSV for M-Pesa bulk pay; edit pay per task; recent payments.
+  - **Audit log:** every admin change to gems, reports, applications, earnings, rates and roles, written by trigger. Nobody can edit or delete it, admins included.
 
 **Logo** (`src/components/Logo.jsx`): a road winding up to an amber Hidden Gem on the teal tile, with the "PathIQ Navigators" wordmark. Used in the app top bar, site nav, footer and sign-in modal. The same drawing is in `public/favicon.svg` (simplified for tab size), `public/icons/` (app icons, maskable icon, notification badge) and `public/og-image.png` (link previews; the og:image URL is relative, so make it absolute once the production domain is known).
 
@@ -64,7 +71,8 @@ What's left is mostly **decisions and accounts only David's team can set up** (s
 - RLS on every table, with trips locked down so the IQ Score can't be gamed by editing rows.
 - Photo ownership checks.
 - Rate limits on routes (per user, per IP, and a global Google budget), trip starts, submissions and uploads.
-- `npm run test:security` passes 61/61 against the hosted project.
+- `npm run test:security` passes 61/61 against the hosted project (before the admin dashboard). With the admin checks it is 134 tests: 133 pass against local Supabase; the one failure is a photo upload hitting a schema quirk in the local storage container, unrelated to this work. Not yet run against hosted (needs `db push`).
+- Admin functions all check for an admin, share a 3,000-calls-per-hour limit per admin, and are logged.
 
 ## Not built
 

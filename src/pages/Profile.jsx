@@ -189,7 +189,7 @@ function Profile() {
               className="auth-guest-btn"
               style={{ display: 'block', textAlign: 'center', marginTop: 10, textDecoration: 'none' }}
             >
-              Open admin review console
+              Open admin dashboard
             </Link>
           )}
         </div>
@@ -208,7 +208,7 @@ function Profile() {
           {!applicationLoading && application?.status === 'rejected' && (
             <p className="list-row-sub">
               <span className="status-pill rejected">Not approved</span> Your application wasn&apos;t approved this
-              time.
+              time.{application.review_note && <> Reason: {application.review_note}</>}
             </p>
           )}
 

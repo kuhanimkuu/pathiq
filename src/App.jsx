@@ -15,7 +15,7 @@ import MapPage from './pages/MapPage'
 import HistoryPage from './pages/HistoryPage'
 import Gems from './pages/Gems'
 import Profile from './pages/Profile'
-import Admin from './pages/Admin'
+import AdminDashboard from './pages/admin/AdminDashboard'
 import ScoutSubmit from './pages/ScoutSubmit'
 import { useAuth } from './context/useAuth'
 import './App.css'
@@ -89,7 +89,7 @@ function AppShell() {
           <Route path="/gems" element={<Gems />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/scout" element={<ScoutSubmit />} />
-          <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/*" element={<AdminDashboard />} />
         </Routes>
       </main>
       <TabBar />

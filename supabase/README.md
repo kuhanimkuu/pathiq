@@ -72,6 +72,7 @@ A few things that only bite on a hosted project, not locally:
 | `trips` | Trip summary only (start, end, distance). The GPS trace is not stored |
 | `trip_gem_events` | Which gems were suggested on a trip (approaching or passed), once per trip |
 | `route_cache` | Cached Google route responses. Server only |
+| `admin_audit_log` | Every admin change to gems, reports, applications, earnings, rates and roles. Admins read it; no one can write or delete it from a client |
 
 Gems and road reports have a `status` (`pending`, `verified`, `rejected`). Scouts submit `pending` rows, an admin reviews them, and only `verified` rows reach drivers.
 

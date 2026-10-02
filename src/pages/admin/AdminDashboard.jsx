@@ -10,6 +10,8 @@ import ReportsManager from './ReportsManager'
 import Users from './Users'
 import Payouts from './Payouts'
 import AuditLog from './AuditLog'
+import AdminUnlock from './AdminUnlock'
+import { adminUnlockedUntil, useBefore } from './adminUtils'
 import './admin.css'
 
 const sections = [
@@ -22,11 +24,27 @@ const sections = [
   { to: '/app/admin/audit', label: 'Audit log', Icon: ScrollText },
 ]
 
-// /app/admin/*. The data is protected by the database (every admin_* function
-// checks the caller); this check only decides what to render.
+// /app/admin/*. Non-admins are sent back to the app; admins must re-enter
+// their password (good for an hour). The database enforces both: every admin
+// function and every "or admin" policy needs the role and a recent password.
 function AdminDashboard() {
-  const { profile } = useAuth()
-  const isAdmin = profile?.role === 'admin'
+  const { profile, session } = useAuth()
+  const until = adminUnlockedUntil(session?.access_token)
+  const unlocked = useBefore(until)
+  // The server is the judge: if it says the password is stale (clock skew,
+  // a session from elsewhere), lock until the next sign-in.
+  const [serverLockedAt, setServerLockedAt] = useState(null)
+  const lock = useCallback(() => setServerLockedAt(until), [until])
+
+  if (!profile) return <div className="admin-page"><p className="list-row-sub">Loading…</p></div>
+  if (profile.role !== 'admin') return <Navigate to="/app" replace />
+  if (!unlocked || serverLockedAt === until) {
+    return <AdminUnlock email={session?.user?.email} expired={until > 0} />
+  }
+  return <AdminConsole key={until} onLocked={lock} />
+}
+
+function AdminConsole({ onLocked }) {
   const [overview, setOverview] = useState(null)
   const [overviewError, setOverviewError] = useState('')
 
@@ -37,30 +55,24 @@ function AdminDashboard() {
       setOverview(await fetchOverview())
       setOverviewError('')
     } catch (err) {
-      setOverviewError(err.message)
+      if (err.code === 'PT401') onLocked()
+      else setOverviewError(err.message)
     }
-  }, [])
+  }, [onLocked])
 
   useEffect(() => {
-    if (!isAdmin) return
     let cancelled = false
     fetchOverview()
       .then((o) => !cancelled && setOverview(o))
-      .catch((err) => !cancelled && setOverviewError(err.message))
+      .catch((err) => {
+        if (cancelled) return
+        if (err.code === 'PT401') onLocked()
+        else setOverviewError(err.message)
+      })
     return () => {
       cancelled = true
     }
-  }, [isAdmin])
-
-  if (!profile) return <div className="admin-page"><p className="list-row-sub">Loading…</p></div>
-  if (!isAdmin) {
-    return (
-      <div className="profile-page">
-        <h1 className="page-title">Admin</h1>
-        <p className="list-row-sub">This area is for admins only.</p>
-      </div>
-    )
-  }
+  }, [onLocked])
 
   const badges = overview && {
     pending: overview.pending_gems + overview.pending_reports + overview.pending_applications,

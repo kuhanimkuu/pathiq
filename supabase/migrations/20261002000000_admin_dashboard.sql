@@ -10,6 +10,47 @@
 -- (rather than through these functions) escapes the log either.
 
 -- =====================================================================
+-- Admin powers need a recent password
+-- =====================================================================
+
+-- Being signed in as an admin isn't enough: admin powers also need the
+-- password to have been entered in the last hour (the dashboard asks for it
+-- again). Supabase records each sign-in method and when it was used in the
+-- session's JWT `amr` claim; refreshing the token keeps the original time,
+-- so only a new password sign-in renews it. This stops anyone holding an
+-- admin's session (an unlocked laptop, a stolen token) from acting as admin.
+create function public.admin_auth_fresh()
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1
+    from jsonb_array_elements(
+      case when jsonb_typeof(auth.jwt() -> 'amr') = 'array' then auth.jwt() -> 'amr' else '[]'::jsonb end
+    ) m
+    where m ->> 'method' in ('password', 'totp')
+      and to_timestamp((m ->> 'timestamp')::double precision) > now() - interval '1 hour'
+  )
+$$;
+
+revoke execute on function public.admin_auth_fresh() from public, anon;
+grant execute on function public.admin_auth_fresh() to authenticated;
+
+-- Every RLS policy's "or admin" clause goes through is_admin(), so this also
+-- covers admin reads and writes made straight against the tables.
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.admin_auth_fresh()
+     and exists (select 1 from public.profiles where id = auth.uid() and role = 'admin');
+$$;
+
+-- =====================================================================
 -- Guard
 -- =====================================================================
 
@@ -20,8 +61,13 @@ security definer
 set search_path = public
 as $$
 begin
-  if not public.is_admin() then
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
     raise exception 'admin only' using errcode = '42501';
+  end if;
+  -- PT401 reaches the client as HTTP 401, which the dashboard answers by
+  -- asking for the password again.
+  if not public.admin_auth_fresh() then
+    raise exception 'Confirm your password to use the admin dashboard.' using errcode = 'PT401';
   end if;
   if not public.consume_rate_limit('admin:' || auth.uid(), 3000, interval '1 hour') then
     raise exception 'Too many admin requests in the last hour. Please try again later.' using errcode = 'PT429';

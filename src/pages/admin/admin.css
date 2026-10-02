@@ -601,3 +601,28 @@ a.admin-tile:hover { border-color: color-mix(in srgb, var(--primary) 45%, transp
 .admin-audit-details dd { margin: 0; overflow-wrap: anywhere; }
 .admin-audit-details s { color: var(--muted-foreground); }
 @media (max-width: 599px) { .admin-audit-details { padding-left: 14px; } }
+
+/* ── Password unlock ── */
+.admin-unlock { display: flex; justify-content: center; padding: 48px 0; }
+.admin-unlock-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 24px;
+}
+.admin-unlock-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  margin-bottom: 14px;
+}
+.admin-unlock-card h1 { font-family: var(--font-heading); font-size: 20px; font-weight: 700; margin: 0 0 6px; }
+.admin-unlock-card > p { font-size: 13.5px; color: var(--muted-foreground); margin: 0 0 18px; }
+.admin-unlock-btn { width: 100%; padding: 11px; margin-top: 4px; }

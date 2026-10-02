@@ -14,3 +14,32 @@ export function useDebounced(value, ms = 300) {
   }, [value, ms])
   return v
 }
+
+// Must match admin_auth_fresh() in the admin_dashboard migration.
+export const ADMIN_UNLOCK_MS = 60 * 60 * 1000
+
+// When the admin dashboard locks again: one hour after the last password
+// sign-in recorded in the access token's `amr` claim (the same claim the
+// database checks). 0 when there's none, e.g. a guest session.
+export function adminUnlockedUntil(accessToken) {
+  try {
+    const part = accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const claims = JSON.parse(atob(part.padEnd(part.length + ((4 - (part.length % 4)) % 4), '=')))
+    const times = (claims.amr ?? []).filter((m) => ['password', 'totp'].includes(m.method)).map((m) => m.timestamp)
+    return times.length ? Math.max(...times) * 1000 + ADMIN_UNLOCK_MS : 0
+  } catch {
+    return 0
+  }
+}
+
+// True while `until` is in the future; flips to false on its own when it passes.
+export function useBefore(until) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const wait = until - Date.now()
+    if (wait <= 0) return
+    const t = setTimeout(() => setNow(Date.now()), Math.min(wait + 500, 2 ** 31 - 1))
+    return () => clearTimeout(t)
+  }, [until])
+  return until > now
+}

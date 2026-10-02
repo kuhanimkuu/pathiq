@@ -53,7 +53,7 @@ What's left is mostly **decisions and accounts only David's team can set up** (s
 - **Home:** IQ Score, stats, Active route card (resume navigation), incidents and gems near you.
 - **Profile:** guest upgrade, Become a Scout, notifications toggle (saved on the profile, asks the browser for permission), gem-alert settings, Install app, dark mode.
 - **Scouts** (`/app/scout`): road reports and gems with an optional photo (shrunk on the phone, private bucket). **Admins** review them in the admin dashboard (below).
-- **Admin dashboard** (`/app/admin`, an Admin tab appears for admins only; code in `src/pages/admin/`, backend in `supabase/migrations/20261002000000_admin_dashboard.sql`):
+- **Admin dashboard** (`/app/admin`, an Admin tab appears for admins only, and non-admins who type the URL are sent to `/app`. Opening it asks for the admin's password again, good for an hour; the database enforces this too, see Security; code in `src/pages/admin/`, backend in `supabase/migrations/20261002000000_admin_dashboard.sql`):
   - **Overview:** what needs attention (items waiting and how old, KSh owed), people (accounts, guests, Scouts), trips this week, live gems and reports, and 14-day charts (trips, new accounts, Scout submissions) with a table view.
   - **Review queue:** gems, road reports and Scout applications, oldest first, with a map of the spot, the photo, who sent it, and a warning when a live gem or report is already within 150 m / 100 m. Reject with a reason (the Scout sees it), bulk approve/reject, keyboard J/K/A/R.
   - **Gems / Road reports:** every item, not just pending. Search and filter, edit details, move the pin (tap the map or paste coordinates), hide/restore, delete, add new ones straight to the map, and clear a report when the road is fixed.
@@ -71,8 +71,9 @@ What's left is mostly **decisions and accounts only David's team can set up** (s
 - RLS on every table, with trips locked down so the IQ Score can't be gamed by editing rows.
 - Photo ownership checks.
 - Rate limits on routes (per user, per IP, and a global Google budget), trip starts, submissions and uploads.
-- `npm run test:security` passes 61/61 against the hosted project (before the admin dashboard). With the admin checks it is 134 tests: 133 pass against local Supabase; the one failure is a photo upload hitting a schema quirk in the local storage container, unrelated to this work. Not yet run against hosted (needs `db push`).
-- Admin functions all check for an admin, share a 3,000-calls-per-hour limit per admin, and are logged.
+- `npm run test:security` passes 61/61 against the hosted project (before the admin dashboard). With the admin checks it is 137 tests: 136 pass against local Supabase; the one failure is a photo upload hitting a schema quirk in the local storage container, unrelated to this work. Not yet run against hosted (needs `db push`).
+- Admin powers need the admin role **and** a password sign-in in the last hour (`admin_auth_fresh()`, read from the session token's `amr` claim). This applies to every admin function and every "or admin" RLS policy, so a stolen or left-open admin session can't do admin things. Admin functions also share a 3,000-calls-per-hour limit per admin, and every admin change is logged.
+- **Making the first admin:** sign up normally, then in Supabase SQL Editor: `update public.profiles set role = 'admin' where id = (select id from auth.users where email = '…');`. Later admins are promoted from Users & Scouts.
 
 ## Not built
 

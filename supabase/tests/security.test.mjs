@@ -24,6 +24,13 @@ const req = async (token, method, path, body, extra = {}) => {
   return { status: r.status, json, text }
 }
 const svc = (method, path, body) => fetch(U + path, { method, headers: { apikey: SRK, Authorization: `Bearer ${SRK}`, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: body && JSON.stringify(body) }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }))
+// A real (non-guest) account, signed in with a password just now.
+const passwordUser = async (email) => {
+  const password = 'Rls-' + Math.random().toString(36).slice(2) + 'A1!'
+  const u = await svc('POST', '/auth/v1/admin/users', { email, password, email_confirm: true })
+  const r = await req(null, 'POST', '/auth/v1/token?grant_type=password', { email, password })
+  return { id: u.json.id, token: r.json.access_token }
+}
 const guest = async () => { const r = await req(null, 'POST', '/auth/v1/signup', {}); return { token: r.json.access_token, id: r.json.user.id } }
 const point = 'SRID=4326;POINT(36.82 -1.29)'
 const created = { users: [], photos: [], reports: [], gems: [] }
@@ -187,8 +194,18 @@ try {
   const report = r.json?.[0]; if (report) created.reports.push(report.id)
 
   // an admin reviewing it must not trip the photo check (it's insert-only)
+  // Admin powers need a password entered in the last hour, not just the role:
+  // a guest session promoted to admin has no password sign-in, so it's refused.
   await svc('PATCH', `/rest/v1/profiles?id=eq.${B.id}`, { role: 'admin' })
   r = await req(B.token, 'POST', '/rest/v1/rpc/review_road_report', { p_report_id: report.id, p_approve: false })
+  ok('an admin without a recent password sign-in is refused (401)', r.status === 401, `${r.status} ${r.text.slice(0, 120)}`)
+  r = await req(B.token, 'GET', `/rest/v1/profiles?id=eq.${A.id}&select=id`)
+  ok('…including on direct table reads', Array.isArray(r.json) && r.json.length === 0, r.text)
+  const C = await passwordUser(`rls-admin-${Date.now()}@pathiq.test`); created.users.push(C.id)
+  await svc('PATCH', `/rest/v1/profiles?id=eq.${C.id}`, { role: 'admin' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_auth_fresh', {})
+  ok('a password sign-in counts as fresh', r.json === true, r.text)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/review_road_report', { p_report_id: report.id, p_approve: false })
   ok('admin can review a report with a photo', r.status < 300, `${r.status} ${r.text.slice(0, 150)}`)
 
   // ── Admin dashboard (B is the admin, A a Scout) ──
@@ -209,68 +226,68 @@ try {
     ok(`anon cannot call ${fn}`, r.status >= 400, `${r.status}`)
   }
   for (const fn of ['admin_guard', 'audit_admin_write', 'admin_check_point']) {
-    r = await req(B.token, 'POST', `/rest/v1/rpc/${fn}`, fn === 'admin_check_point' ? { p_lat: 0, p_lng: 0 } : {})
+    r = await req(C.token, 'POST', `/rest/v1/rpc/${fn}`, fn === 'admin_check_point' ? { p_lat: 0, p_lng: 0 } : {})
     ok(`internal ${fn} is not callable`, r.status >= 400, `${r.status}`)
   }
 
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_overview', {})
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_overview', {})
   ok('admin sees the overview', r.status === 200 && typeof r.json?.pending_gems === 'number' && r.json?.daily?.length === 14, `${r.status} ${r.text.slice(0, 120)}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_users', { p_include_guests: true, p_search: A.id })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_users', { p_include_guests: true, p_search: A.id })
   ok('admin can find a user', r.status === 200 && r.json?.length === 1 && r.json[0].role === 'scout' && r.json[0].is_guest === true, `${r.status} ${r.text.slice(0, 120)}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_set_role', { p_user_id: B.id, p_role: 'driver' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_set_role', { p_user_id: C.id, p_role: 'driver' })
   ok('admin cannot change own role', r.status >= 400, `${r.status}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_set_role', { p_user_id: A.id, p_role: 'admin' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_set_role', { p_user_id: A.id, p_role: 'admin' })
   ok('a guest cannot be made admin', r.status >= 400, `${r.status}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_users', { p_limit: 100000 })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_users', { p_limit: 100000 })
   ok('user listing is capped', r.status === 200 && r.json.length <= 200, `${r.status}`)
 
   // Rejecting with a reason: the Scout sees it on their own submission.
   r = await req(A.token, 'POST', '/rest/v1/gems', { name: 'RLS review gem', category: 'food', location: point, created_by: A.id })
   const pendingGem = r.json?.[0]; if (pendingGem) created.gems.push(pendingGem.id)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_gems', { p_status: 'pending', p_search: 'RLS review gem' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_gems', { p_status: 'pending', p_search: 'RLS review gem' })
   ok('admin lists pending gems with coordinates and submitter', r.json?.length === 1 && Math.abs(r.json[0].lat + 1.29) < 1e-6 && r.json[0].creator_role === 'scout', JSON.stringify(r.json).slice(0, 160))
-  r = await req(B.token, 'POST', '/rest/v1/rpc/review_gem', { p_gem_id: pendingGem.id, p_approve: false, p_note: 'Duplicate of an existing gem' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/review_gem', { p_gem_id: pendingGem.id, p_approve: false, p_note: 'Duplicate of an existing gem' })
   ok('admin can reject with a reason', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
   r = await req(A.token, 'GET', `/rest/v1/gems?id=eq.${pendingGem.id}&select=status,review_note`)
   ok('the Scout sees why it was rejected', r.json?.[0]?.status === 'rejected' && r.json[0].review_note === 'Duplicate of an existing gem', JSON.stringify(r.json))
 
   // Admin adds and edits a gem directly.
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_save_gem', { p_id: null, p_name: 'RLS admin gem', p_category: 'scenic', p_lat: -1.3, p_lng: 36.8 })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_save_gem', { p_id: null, p_name: 'RLS admin gem', p_category: 'scenic', p_lat: -1.3, p_lng: 36.8 })
   const adminGemId = r.json; if (typeof adminGemId === 'string') created.gems.push(adminGemId)
   ok('admin can add a gem straight to the map', r.status === 200 && typeof adminGemId === 'string', `${r.status} ${r.text.slice(0, 120)}`)
   r = await req(A.token, 'GET', `/rest/v1/gems?id=eq.${adminGemId}&select=status`)
   ok('an admin-added gem is verified (drivers see it)', r.json?.[0]?.status === 'verified', JSON.stringify(r.json))
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_save_gem', { p_id: adminGemId, p_name: 'RLS admin gem 2', p_category: 'scenic', p_lat: 95, p_lng: 36.8 })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_save_gem', { p_id: adminGemId, p_name: 'RLS admin gem 2', p_category: 'scenic', p_lat: 95, p_lng: 36.8 })
   ok('an invalid location is rejected', r.status >= 400, `${r.status}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_save_gem', { p_id: adminGemId, p_name: '  ', p_category: 'scenic', p_lat: -1.3, p_lng: 36.8 })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_save_gem', { p_id: adminGemId, p_name: '  ', p_category: 'scenic', p_lat: -1.3, p_lng: 36.8 })
   ok('a blank name is rejected', r.status >= 400, `${r.status}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_save_gem', { p_id: adminGemId, p_name: 'RLS admin gem 2', p_category: 'scenic', p_lat: -1.31, p_lng: 36.8 })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_save_gem', { p_id: adminGemId, p_name: 'RLS admin gem 2', p_category: 'scenic', p_lat: -1.31, p_lng: 36.8 })
   ok('admin can edit and move a gem', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_set_gem_status', { p_id: adminGemId, p_status: 'rejected', p_note: 'Closed down' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_set_gem_status', { p_id: adminGemId, p_status: 'rejected', p_note: 'Closed down' })
   ok('admin can hide a verified gem', r.status === 200 && r.json?.status === 'rejected', `${r.status} ${r.text.slice(0, 120)}`)
   r = await req(A.token, 'GET', `/rest/v1/gems?id=eq.${adminGemId}&select=id`)
   ok('a hidden gem disappears for drivers', Array.isArray(r.json) && r.json.length === 0, JSON.stringify(r.json))
 
   // Audit log: every admin write is there, and nobody can write or erase it.
-  r = await req(B.token, 'GET', `/rest/v1/admin_audit_log?target_id=eq.${adminGemId}&select=action,admin_id,details&order=id`)
-  ok('admin edits are in the audit log', r.json?.map((e) => e.action).join() === 'create,update,status:rejected' && r.json.every((e) => e.admin_id === B.id), JSON.stringify(r.json).slice(0, 200))
+  r = await req(C.token, 'GET', `/rest/v1/admin_audit_log?target_id=eq.${adminGemId}&select=action,admin_id,details&order=id`)
+  ok('admin edits are in the audit log', r.json?.map((e) => e.action).join() === 'create,update,status:rejected' && r.json.every((e) => e.admin_id === C.id), JSON.stringify(r.json).slice(0, 200))
   ok('a moved location is logged without raw coordinates', r.json?.[1]?.details?.location === 'moved' && r.json[1].details.name?.to === 'RLS admin gem 2', JSON.stringify(r.json?.[1]))
   r = await req(A.token, 'GET', '/rest/v1/admin_audit_log?select=id&limit=1')
   ok('non-admins cannot read the audit log', r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status}`)
-  r = await req(B.token, 'POST', '/rest/v1/admin_audit_log', { action: 'fake', target_table: 'gems' })
+  r = await req(C.token, 'POST', '/rest/v1/admin_audit_log', { action: 'fake', target_table: 'gems' })
   ok('even admins cannot write the audit log', r.status >= 400, `${r.status}`)
-  r = await req(B.token, 'DELETE', `/rest/v1/admin_audit_log?target_id=eq.${adminGemId}`)
+  r = await req(C.token, 'DELETE', `/rest/v1/admin_audit_log?target_id=eq.${adminGemId}`)
   ok('even admins cannot erase the audit log', r.status >= 400, `${r.status}`)
-  r = await req(B.token, 'GET', `/rest/v1/admin_audit_log?target_id=eq.${adminGemId}&select=id`)
+  r = await req(C.token, 'GET', `/rest/v1/admin_audit_log?target_id=eq.${adminGemId}&select=id`)
   ok('audit entries survive a delete attempt', r.json?.length === 3, JSON.stringify(r.json))
 
   // Road reports: clearing one (expires now) takes it off the map.
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_save_road_report', { p_id: null, p_type: 'flooding', p_severity: 4, p_lat: -1.29, p_lng: 36.82 })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_save_road_report', { p_id: null, p_type: 'flooding', p_severity: 4, p_lat: -1.29, p_lng: 36.82 })
   const adminReportId = r.json; if (typeof adminReportId === 'string') created.reports.push(adminReportId)
   ok('admin can add a road report', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_save_road_report', { p_id: adminReportId, p_type: 'flooding', p_severity: 9, p_lat: -1.29, p_lng: 36.82 })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_save_road_report', { p_id: adminReportId, p_type: 'flooding', p_severity: 9, p_lat: -1.29, p_lng: 36.82 })
   ok('severity outside 1-5 is rejected', r.status >= 400, `${r.status}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_clear_road_report', { p_id: adminReportId })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_clear_road_report', { p_id: adminReportId })
   ok('admin can clear a report (road fixed)', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
   r = await req(A.token, 'GET', `/rest/v1/road_reports?id=eq.${adminReportId}&select=id`)
   ok('a cleared report disappears for drivers', Array.isArray(r.json) && r.json.length === 0, JSON.stringify(r.json))
@@ -278,17 +295,17 @@ try {
   // Payouts: one M-Pesa code pays exactly the earnings the admin saw.
   r = await req(A.token, 'POST', '/rest/v1/gems', { name: 'RLS paid gem', category: 'food', location: point, created_by: A.id })
   const paidGem = r.json?.[0]; if (paidGem) created.gems.push(paidGem.id)
-  await req(B.token, 'POST', '/rest/v1/rpc/review_gem', { p_gem_id: paidGem.id, p_approve: true })
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_payouts', {})
+  await req(C.token, 'POST', '/rest/v1/rpc/review_gem', { p_gem_id: paidGem.id, p_approve: true })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_payouts', {})
   const owed = r.json?.find((p) => p.scout_id === A.id)
   ok('approving a Scout gem shows up as owed', owed?.items === 1 && owed.total_kes === 350, JSON.stringify(owed))
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_pay_scout', { p_scout_id: A.id, p_earning_ids: owed.earning_ids, p_mpesa_ref: 'not a code!' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_pay_scout', { p_scout_id: A.id, p_earning_ids: owed.earning_ids, p_mpesa_ref: 'not a code!' })
   ok('payout needs a real M-Pesa code', r.status >= 400, `${r.status}`)
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_pay_scout', { p_scout_id: B.id, p_earning_ids: owed.earning_ids, p_mpesa_ref: 'QJK3XYZ12A' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_pay_scout', { p_scout_id: B.id, p_earning_ids: owed.earning_ids, p_mpesa_ref: 'QJK3XYZ12A' })
   ok("can't pay one Scout's earnings to another", r.json?.[0]?.items === 0, JSON.stringify(r.json))
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_pay_scout', { p_scout_id: A.id, p_earning_ids: owed.earning_ids, p_mpesa_ref: 'qjk3xyz12a' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_pay_scout', { p_scout_id: A.id, p_earning_ids: owed.earning_ids, p_mpesa_ref: 'qjk3xyz12a' })
   ok('admin pays a Scout in one go', r.json?.[0]?.items === 1 && r.json[0].total_kes === 350, JSON.stringify(r.json))
-  r = await req(B.token, 'POST', '/rest/v1/rpc/admin_pay_scout', { p_scout_id: A.id, p_earning_ids: owed.earning_ids, p_mpesa_ref: 'QJK3XYZ12A' })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_pay_scout', { p_scout_id: A.id, p_earning_ids: owed.earning_ids, p_mpesa_ref: 'QJK3XYZ12A' })
   ok('the same earnings cannot be paid twice', r.json?.[0]?.items === 0, JSON.stringify(r.json))
   r = await req(A.token, 'GET', `/rest/v1/scout_earnings?gem_id=eq.${paidGem.id}&select=status,mpesa_ref`)
   ok('the Scout sees it paid with the code', r.json?.[0]?.status === 'paid' && r.json[0].mpesa_ref === 'QJK3XYZ12A', JSON.stringify(r.json))
@@ -296,10 +313,10 @@ try {
   // Rates: admins only, and logged.
   r = await req(A.token, 'PATCH', '/rest/v1/task_rates?task=eq.flood_survey', { amount_kes: 99999 })
   ok('non-admins cannot change pay rates', r.status >= 400 || r.json?.length === 0, `${r.status}`)
-  r = await req(B.token, 'PATCH', '/rest/v1/task_rates?task=eq.flood_survey', { amount_kes: 501 })
+  r = await req(C.token, 'PATCH', '/rest/v1/task_rates?task=eq.flood_survey', { amount_kes: 501 })
   ok('admin can change a pay rate', r.status === 200 && r.json?.[0]?.amount_kes === 501, `${r.status} ${r.text.slice(0, 100)}`)
-  await req(B.token, 'PATCH', '/rest/v1/task_rates?task=eq.flood_survey', { amount_kes: 500 })
-  r = await req(B.token, 'GET', '/rest/v1/admin_audit_log?target_table=eq.task_rates&target_id=eq.flood_survey&select=details&order=id.desc&limit=2')
+  await req(C.token, 'PATCH', '/rest/v1/task_rates?task=eq.flood_survey', { amount_kes: 500 })
+  r = await req(C.token, 'GET', '/rest/v1/admin_audit_log?target_table=eq.task_rates&target_id=eq.flood_survey&select=details&order=id.desc&limit=2')
   ok('rate changes are logged', r.json?.length === 2 && r.json[1].details.amount_kes?.to === 501, JSON.stringify(r.json))
 
   // ── rate limits ──

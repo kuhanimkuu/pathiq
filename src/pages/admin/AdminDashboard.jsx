@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
-import { LayoutDashboard, Inbox, Gem, TriangleAlert, Users as UsersIcon, Wallet, ScrollText } from 'lucide-react'
+import { LayoutDashboard, Map as MapIcon, Inbox, Gem, TriangleAlert, Users as UsersIcon, Wallet, Gauge, Database, ScrollText } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
 import { fetchOverview } from '../../lib/admin'
 import Overview from './Overview'
@@ -10,17 +10,25 @@ import ReportsManager from './ReportsManager'
 import Users from './Users'
 import Payouts from './Payouts'
 import AuditLog from './AuditLog'
+import AdminMapPage from './AdminMapPage'
+import GemDetail from './GemDetail'
+import UserDetail from './UserDetail'
+import Usage from './Usage'
+import DataTools from './DataTools'
 import AdminUnlock from './AdminUnlock'
 import { adminUnlockedUntil, useBefore } from './adminUtils'
 import './admin.css'
 
 const sections = [
   { to: '/app/admin', label: 'Overview', Icon: LayoutDashboard },
+  { to: '/app/admin/map', label: 'Map', Icon: MapIcon },
   { to: '/app/admin/review', label: 'Review queue', Icon: Inbox, badge: 'pending' },
   { to: '/app/admin/gems', label: 'Gems', Icon: Gem },
   { to: '/app/admin/reports', label: 'Road reports', Icon: TriangleAlert },
   { to: '/app/admin/users', label: 'Users & Scouts', Icon: UsersIcon },
   { to: '/app/admin/payouts', label: 'Payouts & rates', Icon: Wallet, badge: 'owed' },
+  { to: '/app/admin/usage', label: 'Usage & costs', Icon: Gauge },
+  { to: '/app/admin/data', label: 'Data tools', Icon: Database },
   { to: '/app/admin/audit', label: 'Audit log', Icon: ScrollText },
 ]
 
@@ -99,11 +107,16 @@ function AdminConsole({ onLocked }) {
       <section className="admin-main">
         <Routes>
           <Route index element={<Overview overview={overview} error={overviewError} />} />
+          <Route path="map" element={<AdminMapPage onChanged={refresh} />} />
           <Route path="review" element={<ReviewQueue overview={overview} onChanged={refresh} />} />
           <Route path="gems" element={<GemsManager onChanged={refresh} />} />
+          <Route path="gems/:id" element={<GemDetail onChanged={refresh} />} />
           <Route path="reports" element={<ReportsManager onChanged={refresh} />} />
-          <Route path="users" element={<Users onChanged={refresh} />} />
+          <Route path="users" element={<Users />} />
+          <Route path="users/:id" element={<UserDetail onChanged={refresh} />} />
           <Route path="payouts" element={<Payouts onChanged={refresh} />} />
+          <Route path="usage" element={<Usage />} />
+          <Route path="data" element={<DataTools onChanged={refresh} />} />
           <Route path="audit" element={<AuditLog />} />
           <Route path="*" element={<Navigate to="/app/admin" replace />} />
         </Routes>

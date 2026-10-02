@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Search } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
-import { fetchUsers, setUserRole, formatKes } from '../../lib/admin'
+import { fetchUsers, formatKes } from '../../lib/admin'
 import { timeAgo } from '../../lib/roadReports'
-import { Dialog, Pager, Segmented } from './AdminUi'
-import { formatDate, useDebounced } from './adminUtils'
+import { Pager, Segmented } from './AdminUi'
+import { useDebounced } from './adminUtils'
 
 const ROLE_FILTERS = [
   { value: null, label: 'Everyone' },
@@ -17,115 +18,17 @@ const SORTS = [
   { value: 'newest', label: 'Newest first' },
   { value: 'submissions', label: 'Top Scouts (approved submissions)' },
   { value: 'owed', label: 'Most owed' },
+  { value: 'suspended', label: 'Suspended first' },
 ]
-
-const ROLE_HELP = {
-  driver: 'Uses the map and gems. Can’t submit reports.',
-  scout: 'Can submit road reports and gems, and gets paid for approved ones.',
-  admin: 'Full access to this dashboard: reviews, edits, users and payouts.',
-}
 
 function RolePill({ role, guest }) {
   if (guest) return <span className="admin-pill role-guest">Guest</span>
   return <span className={`admin-pill role-${role}`}>{role[0].toUpperCase() + role.slice(1)}</span>
 }
 
-function UserDialog({ user, isSelf, onClose, onChanged }) {
-  const [role, setRole] = useState(user.role)
-  const [pending, setPending] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  async function apply() {
-    setBusy(true)
-    setError('')
-    try {
-      const updated = await setUserRole(user.id, pending)
-      setRole(updated.role)
-      setPending(null)
-      onChanged()
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const approvalRate = user.submissions ? Math.round((user.verified_submissions / user.submissions) * 100) : null
-
-  return (
-    <Dialog title={user.display_name || user.username} onClose={onClose}>
-      <div className="admin-editor-meta">
-        <RolePill role={role} guest={user.is_guest} /> @{user.username}
-      </div>
-      <dl className="admin-dl two-col">
-        <dt>Email</dt>
-        <dd>{user.email || (user.is_guest ? 'Guest, no email' : '–')}</dd>
-        <dt>Joined</dt>
-        <dd>{formatDate(user.created_at)}</dd>
-        <dt>Last signed in</dt>
-        <dd>{user.last_sign_in_at ? timeAgo(user.last_sign_in_at) : '–'}</dd>
-        <dt>Trips (30 days)</dt>
-        <dd>{user.trips_30d}</dd>
-        <dt>IQ Score</dt>
-        <dd>{user.iq_score ?? '–'}</dd>
-        {(user.submissions > 0 || role === 'scout') && (
-          <>
-            <dt>Submissions</dt>
-            <dd>
-              {user.verified_submissions} approved of {user.submissions}
-              {approvalRate != null && ` (${approvalRate}%)`}
-            </dd>
-            <dt>Earned</dt>
-            <dd>
-              {formatKes(user.earned_kes)}
-              {user.owed_kes > 0 && `, ${formatKes(user.owed_kes)} still owed`}
-            </dd>
-            <dt>M-Pesa</dt>
-            <dd className="mono">{user.mpesa_phone || '–'}</dd>
-          </>
-        )}
-        <dt>User ID</dt>
-        <dd className="mono small">{user.id}</dd>
-      </dl>
-
-      <h3 className="admin-h3">Role</h3>
-      {isSelf ? (
-        <p className="admin-hint">You can&apos;t change your own role. Another admin has to.</p>
-      ) : user.is_guest ? (
-        <p className="admin-hint">Guests need a real account before they can be a Scout or admin.</p>
-      ) : (
-        <>
-          <Segmented
-            label="Role"
-            value={pending ?? role}
-            onChange={(r) => setPending(r === role ? null : r)}
-            options={['driver', 'scout', 'admin'].map((r) => ({ value: r, label: r[0].toUpperCase() + r.slice(1) }))}
-          />
-          <p className="admin-hint">{ROLE_HELP[pending ?? role]}</p>
-          {pending && (
-            <div className="admin-confirm">
-              Change {user.username} from {role} to {pending}?
-              <button className="admin-btn primary small" disabled={busy} onClick={apply}>
-                Yes, change
-              </button>
-              <button className="admin-btn small" onClick={() => setPending(null)}>
-                Cancel
-              </button>
-            </div>
-          )}
-          {role === 'scout' && pending === 'driver' && user.owed_kes > 0 && (
-            <p className="admin-warning">They&apos;re still owed {formatKes(user.owed_kes)}. That stays in Payouts.</p>
-          )}
-        </>
-      )}
-      {error && <p className="auth-error">{error}</p>}
-    </Dialog>
-  )
-}
-
-function Users({ onChanged }) {
+function Users() {
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const [role, setRole] = useState(null)
   const [sort, setSort] = useState('newest')
   const [includeGuests, setIncludeGuests] = useState(false)
@@ -135,8 +38,6 @@ function Users({ onChanged }) {
   const [data, setData] = useState({ rows: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [open, setOpen] = useState(null)
-  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -151,7 +52,7 @@ function Users({ onChanged }) {
     return () => {
       cancelled = true
     }
-  }, [debounced, role, includeGuests, sort, page, reloadKey])
+  }, [debounced, role, includeGuests, sort, page])
 
   const change = (fn) => (v) => {
     setLoading(true)
@@ -215,9 +116,9 @@ function Users({ onChanged }) {
             </thead>
             <tbody>
               {data.rows.map((u) => (
-                <tr key={u.id} onClick={() => setOpen(u)}>
+                <tr key={u.id} onClick={() => navigate(`/app/admin/users/${u.id}`)}>
                   <td>
-                    <button type="button" className="admin-row-btn" onClick={() => setOpen(u)}>
+                    <button type="button" className="admin-row-btn" onClick={() => navigate(`/app/admin/users/${u.id}`)}>
                       <span>
                         <span className="admin-queue-title">
                           {u.display_name || u.username}
@@ -229,6 +130,7 @@ function Users({ onChanged }) {
                   </td>
                   <td>
                     <RolePill role={u.role} guest={u.is_guest} />
+                    {u.suspended_until && <span className="admin-pill status-rejected admin-pill-gap">Suspended</span>}
                   </td>
                   <td className="num hide-sm">{u.trips_30d}</td>
                   <td className="num hide-sm">{u.iq_score ?? '–'}</td>
@@ -243,17 +145,6 @@ function Users({ onChanged }) {
       )}
       <Pager page={page} total={data.total} onPage={change(setPage)} />
 
-      {open && (
-        <UserDialog
-          user={open}
-          isSelf={open.id === profile.id}
-          onClose={() => setOpen(null)}
-          onChanged={() => {
-            setReloadKey((k) => k + 1)
-            onChanged()
-          }}
-        />
-      )}
     </div>
   )
 }

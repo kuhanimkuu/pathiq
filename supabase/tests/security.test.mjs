@@ -319,6 +319,106 @@ try {
   r = await req(C.token, 'GET', '/rest/v1/admin_audit_log?target_table=eq.task_rates&target_id=eq.flood_survey&select=details&order=id.desc&limit=2')
   ok('rate changes are logged', r.json?.length === 2 && r.json[1].details.amount_kes?.to === 501, JSON.stringify(r.json))
 
+  // ── Admin tools: map, detail, usage, import, merge, suspend ──
+  const toolRpcs = {
+    admin_map_points: { p_south: -1.4, p_west: 36.7, p_north: -1.2, p_east: 36.9 },
+    admin_user_detail: { p_user_id: A.id },
+    admin_gem_detail: { p_gem_id: gem.id },
+    admin_usage: {},
+    admin_duplicate_gems: {},
+    admin_import_gems: { p_rows: [] },
+    admin_merge_gems: { p_keep: gem.id, p_remove: gem.id },
+    admin_suspend_user: { p_user_id: B.id, p_reason: 'x' },
+    admin_unsuspend_user: { p_user_id: B.id },
+  }
+  for (const [fn, body] of Object.entries(toolRpcs)) {
+    r = await req(A.token, 'POST', `/rest/v1/rpc/${fn}`, body)
+    ok(`non-admins cannot call ${fn}`, r.status >= 400, `${r.status}`)
+  }
+  r = await req(A.token, 'POST', '/rest/v1/rpc/record_route_usage', { p_outcome: 'google' })
+  ok('clients cannot inflate route usage', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/record_route_usage', { p_outcome: 'google' })
+  ok('…not even admins', r.status >= 400, `${r.status}`)
+  r = await req(A.token, 'GET', '/rest/v1/route_usage_daily?select=*')
+  ok('clients cannot read route usage directly', r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status}`)
+  r = await req(A.token, 'GET', '/rest/v1/app_settings?select=*')
+  ok('non-admins cannot read settings', r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status}`)
+  r = await req(A.token, 'PATCH', '/rest/v1/app_settings?key=eq.routes_usd_per_1000', { value: { google: 0 } })
+  ok('non-admins cannot change settings', r.status >= 400 || r.json?.length === 0, `${r.status}`)
+
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_map_points', toolRpcs.admin_map_points)
+  ok('admin map returns gems, reports and trip cells', Array.isArray(r.json?.gems) && Array.isArray(r.json?.reports) && Array.isArray(r.json?.trips), `${r.status} ${r.text.slice(0, 120)}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_map_points', { p_south: -40, p_west: 0, p_north: 40, p_east: 60 })
+  ok('admin map refuses a huge area', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_user_detail', { p_user_id: A.id })
+  ok('admin sees a user in detail', r.status === 200 && r.json?.profile?.id === A.id && r.json.submissions.length >= 1 && r.json.earnings.length >= 1, `${r.status} ${r.text.slice(0, 120)}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_usage', {})
+  ok('admin sees route usage', r.status === 200 && r.json?.daily?.length === 30 && r.json.prices?.google_traffic === 10, `${r.status} ${r.text.slice(0, 120)}`)
+  r = await req(C.token, 'PATCH', '/rest/v1/app_settings?key=eq.routes_usd_per_1000', { value: { google: 5, google_traffic: 12 } })
+  ok('admin can set Google prices', r.status === 200 && r.json?.[0]?.value?.google_traffic === 12, `${r.status} ${r.text.slice(0, 100)}`)
+
+  // Import: dry run flags bad rows and duplicates, commit adds only good ones.
+  const importRows = [
+    { name: 'RLS import A', category: 'food', lat: -1.35, lng: 36.75 },
+    { name: 'RLS import A', category: 'food', lat: -1.3501, lng: 36.7501 },
+    { name: '', category: 'food', lat: -1.35, lng: 36.76 },
+    { name: 'RLS import bad cat', category: 'nightclub', lat: -1.35, lng: 36.77 },
+    { name: 'RLS import B', category: 'scenic', lat: 'x', lng: 36.78 },
+    { name: 'RLS import C', category: 'Scenic', lat: -1.36, lng: 36.79, description: 'ok' },
+  ]
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_import_gems', { p_rows: importRows, p_commit: false })
+  ok('import dry run checks every row', r.json?.map((x) => x.status).join() === 'ok,duplicate,invalid,invalid,invalid,ok', JSON.stringify(r.json))
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_import_gems', { p_rows: importRows, p_commit: true })
+  const imported = (r.json ?? []).filter((x) => x.status === 'added').map((x) => x.gem_id); created.gems.push(...imported)
+  ok('import adds only the good rows, verified', imported.length === 2, JSON.stringify(r.json))
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_import_gems', { p_rows: Array.from({ length: 501 }, () => importRows[0]) })
+  ok('import is capped at 500 rows', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_import_gems', { p_rows: [importRows[0]], p_commit: true })
+  ok('re-importing the same place is caught as a duplicate', r.json?.[0]?.status === 'duplicate', JSON.stringify(r.json))
+
+  // Merge: confirmations and saves move to the kept gem; the other is gone.
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_save_gem', { p_id: null, p_name: 'RLS import A copy', p_category: 'food', p_lat: -1.3502, p_lng: 36.7502 })
+  const dupId = r.json; created.gems.push(dupId)
+  await req(A.token, 'POST', '/rest/v1/gem_confirmations', { gem_id: dupId, user_id: A.id, rating: 4 })
+  await req(A.token, 'POST', '/rest/v1/saved_gems', { user_id: A.id, gem_id: dupId })
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_duplicate_gems', { p_radius_m: 100 })
+  ok('duplicate finder pairs nearby gems', r.json?.some((p) => [p.a_id, p.b_id].includes(dupId) && [p.a_id, p.b_id].includes(imported[0])), JSON.stringify(r.json).slice(0, 160))
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_merge_gems', { p_keep: imported[0], p_remove: dupId })
+  ok('admin can merge duplicates', r.status === 200 && r.json?.confirmations_count === 1, `${r.status} ${r.text.slice(0, 120)}`)
+  r = await req(A.token, 'POST', '/rest/v1/rpc/my_saved_gems', {})
+  ok("a driver's save follows the merge", r.json?.some((g) => g.id === imported[0]), JSON.stringify(r.json).slice(0, 160))
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_gem_detail', { p_gem_id: imported[0] })
+  ok('gem detail shows saves, ratings and the merge', r.json?.stats?.saves === 1 && r.json.stats.ratings?.['4'] === 1 && r.json.audit.some((e) => e.action === 'merge'), JSON.stringify(r.json?.stats))
+
+  // Suspensions: A (a Scout) can't contribute; admins can't be suspended.
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_suspend_user', { p_user_id: C.id, p_reason: 'test' })
+  ok('admin cannot suspend themselves', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_suspend_user', { p_user_id: B.id, p_reason: 'test' })
+  ok('an admin cannot be suspended', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_suspend_user', { p_user_id: A.id, p_reason: '' })
+  ok('suspending needs a reason', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_suspend_user', { p_user_id: A.id, p_reason: 'Fake reports' })
+  ok('admin can suspend a Scout', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+  r = await req(A.token, 'GET', `/rest/v1/profiles?id=eq.${A.id}&select=suspended_until,suspension_reason`)
+  ok('the person sees why', r.json?.[0]?.suspension_reason === 'Fake reports' && r.json[0].suspended_until, JSON.stringify(r.json))
+  r = await req(A.token, 'PATCH', `/rest/v1/profiles?id=eq.${A.id}`, { suspended_until: null })
+  ok('…and cannot lift it themselves', r.status >= 400, `${r.status}`)
+  r = await req(A.token, 'POST', '/rest/v1/road_reports', { type: 'pothole', severity: 3, location: point, reported_by: A.id })
+  ok('a suspended Scout cannot submit reports', r.status === 403, `${r.status} ${r.text.slice(0, 100)}`)
+  r = await req(A.token, 'POST', '/rest/v1/gem_confirmations', { gem_id: gem.id, user_id: A.id, rating: 5 })
+  ok('…or rate gems', r.status >= 400, `${r.status}`)
+  r = await req(A.token, 'POST', `/storage/v1/object/scout-photos/${A.id}/y.png`, png, { 'Content-Type': 'image/png' })
+  ok('…or upload photos', r.status >= 400, `${r.status}`)
+  r = await req(A.token, 'POST', '/rest/v1/rpc/my_driver_stats', {})
+  ok('…but can still use the app', r.status === 200, `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_unsuspend_user', { p_user_id: A.id })
+  ok('admin can lift a suspension', r.status === 200, `${r.status}`)
+  r = await req(A.token, 'POST', '/rest/v1/road_reports', { type: 'pothole', severity: 3, location: point, reported_by: A.id, description: 'RLS after unsuspend' })
+  ok('…and they can submit again', r.status === 201, `${r.status} ${r.text.slice(0, 100)}`)
+  if (r.json?.[0]) created.reports.push(r.json[0].id)
+  r = await req(C.token, 'GET', `/rest/v1/admin_audit_log?target_id=eq.${A.id}&action=in.(suspend,unsuspend)&select=action&order=id`)
+  ok('suspensions are logged', r.json?.map((e) => e.action).join() === 'suspend,unsuspend', JSON.stringify(r.json))
+
   // ── rate limits ──
   let last
   for (let i = 0; i < 31; i++) {

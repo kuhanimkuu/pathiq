@@ -120,7 +120,16 @@ Deno.serve(async (req) => {
     }
     return data === true
   }
-  const tooMany = (message: string) => json({ error: message }, 429, { 'Retry-After': '600' })
+  // Daily counts for the admin dashboard's usage and cost panel
+  // (route_usage_daily). Never lets a counting problem break routing.
+  const track = async (outcome: 'google' | 'google_traffic' | 'cache' | 'limited' | 'error') => {
+    const { error } = await admin.rpc('record_route_usage', { p_outcome: outcome })
+    if (error) console.error('usage count failed', error)
+  }
+  const tooMany = async (message: string) => {
+    await track('limited')
+    return json({ error: message }, 429, { 'Retry-After': '600' })
+  }
 
   const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unknown'
   if (!(await consume(`routes:user:${userData.user.id}`, USER_LIMIT.max, USER_LIMIT.window))) {
@@ -147,11 +156,13 @@ Deno.serve(async (req) => {
   if (hitRoutes && hitRoutes.every((r) => Array.isArray(r.steps) && Array.isArray(r.traffic))) {
     googleRoutes = hitRoutes
     cached = true
+    await track('cache')
   }
 
   if (!googleRoutes) {
     if (!(await consume('routes:google:global', GLOBAL_GOOGLE_CALLS_PER_HOUR, '1 hour'))) {
       console.error('global Google Routes budget reached for this hour')
+      await track('limited')
       return json({ error: 'Routing is busy right now. Please try again shortly.' }, 503, { 'Retry-After': '300' })
     }
     try {
@@ -161,8 +172,10 @@ Deno.serve(async (req) => {
       })
     } catch (error) {
       console.error(error)
+      await track('error')
       return json({ error: 'Could not get routes from Google' }, 502)
     }
+    await track(TRAFFIC_ON_POLYLINE ? 'google_traffic' : 'google')
     if (googleRoutes.length > 0) {
       await admin.from('route_cache').upsert({
         key,
@@ -173,7 +186,10 @@ Deno.serve(async (req) => {
   }
 
   const usable = googleRoutes.filter((r) => r.encodedPolyline)
-  if (usable.length === 0) return json({ error: 'No route found' }, 404)
+  if (usable.length === 0) {
+    await track('error')
+    return json({ error: 'No route found' }, 404)
+  }
 
   // Road reports along each route, fetched in parallel.
   const now = Date.now()

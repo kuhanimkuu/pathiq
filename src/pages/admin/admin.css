@@ -626,3 +626,182 @@ a.admin-tile:hover { border-color: color-mix(in srgb, var(--primary) 45%, transp
 .admin-unlock-card h1 { font-family: var(--font-heading); font-size: 20px; font-weight: 700; margin: 0 0 6px; }
 .admin-unlock-card > p { font-size: 13.5px; color: var(--muted-foreground); margin: 0 0 18px; }
 .admin-unlock-btn { width: 100%; padding: 11px; margin-top: 4px; }
+
+/* ── Second pass: map, detail pages, usage, data tools ── */
+.admin-title-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.admin-pill-gap { margin-left: 6px; }
+.admin-body-text { font-size: 13.5px; line-height: 1.55; margin: 0 0 12px; }
+.admin-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-decoration: none;
+  margin-bottom: 12px;
+}
+.admin-back:hover { color: var(--foreground); }
+.admin-detail-title { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
+.admin-detail-title > div:not(.admin-avatar) { flex: 1; min-width: 0; }
+.admin-detail-title h1 { font-family: var(--font-heading); font-size: 22px; font-weight: 700; margin: 0 0 6px; }
+.admin-detail-title .admin-editor-meta { margin-bottom: 4px; }
+.admin-detail-title .admin-editor-meta a { color: var(--primary); }
+.admin-avatar {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.admin-detail-grid { display: grid; grid-template-columns: 1fr; gap: 20px; margin-top: 8px; }
+@media (min-width: 1000px) {
+  .admin-detail-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+  .admin-detail-grid.narrow-right { grid-template-columns: minmax(0, 1fr) 300px; }
+}
+.admin-side-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 4px 16px 16px;
+  align-self: start;
+}
+.admin-side-panel .admin-h3 { display: flex; align-items: center; gap: 6px; }
+.admin-tiles.compact { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); margin-bottom: 16px; }
+.admin-tiles.compact .admin-tile-value { font-size: 22px; }
+.admin-suspended { justify-content: space-between; flex-wrap: wrap; color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+.admin-suspended span { flex: 1; min-width: 200px; }
+.admin-coords-address { font-family: var(--font-body); }
+
+.admin-rating-bars { display: grid; gap: 6px; max-width: 360px; }
+.admin-rating-row { display: grid; grid-template-columns: 28px 1fr 32px; align-items: center; gap: 8px; font-size: 12.5px; }
+.admin-rating-row .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+.admin-rating-track { height: 8px; border-radius: 4px; background: var(--secondary); overflow: hidden; }
+.admin-rating-fill { display: block; height: 100%; border-radius: 4px; background: var(--amber); }
+
+/* Map page */
+.admin-layer-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.admin-layer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 6px 11px;
+  cursor: pointer;
+}
+.admin-layer-chip.on { color: var(--foreground); border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+.admin-layer-chip:not(.on) .admin-layer-dot { opacity: 0.3; }
+.admin-layer-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--primary); }
+.layer-pending .admin-layer-dot { background: none; border: 2px solid var(--amber); }
+.layer-gemsHidden .admin-layer-dot,
+.layer-reportsOld .admin-layer-dot { background: var(--muted-foreground); }
+.layer-reportsLive .admin-layer-dot { background: var(--red); border-radius: 2px; transform: rotate(45deg) scale(0.85); }
+.layer-trips .admin-layer-dot { background: color-mix(in srgb, #F59E0B 55%, transparent); }
+.admin-layer-count { font-variant-numeric: tabular-nums; color: var(--muted-foreground); font-weight: 500; }
+
+.admin-bigmap {
+  position: relative;
+  height: calc(100vh - 220px);
+  min-height: 420px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+}
+@media (max-width: 899px) { .admin-bigmap { height: 65vh; min-height: 360px; } }
+.admin-bigmap-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 6px 14px;
+}
+.admin-map-card {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: min(320px, calc(100% - 24px));
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 14px 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.admin-map-card-close { position: absolute; top: 6px; right: 6px; }
+.admin-map-card-title { font-weight: 700; font-size: 14.5px; padding-right: 28px; }
+.admin-map-card-sub { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted-foreground); margin: 6px 0 12px; }
+.admin-map-card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Pending items pulse; hidden/expired ones fade. */
+.admin-pin-pending::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px; /* centred on the point (report diamonds) */
+  border-radius: 50%;
+  border: 2px solid #F59E0B;
+  background: rgba(245, 158, 11, 0.22);
+  animation: admin-pulse 1.6s ease-out infinite;
+  pointer-events: none;
+}
+.admin-pin-pending.is-gem::before { margin-top: -48px; } /* gem pins stand above the point: centre on the head */
+@keyframes admin-pulse {
+  0% { transform: scale(0.8); opacity: 1; }
+  70% { transform: scale(1.35); opacity: 0.35; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .admin-pin-pending::before { animation: none; } }
+.admin-pin-faded { opacity: 0.45; filter: grayscale(0.7); }
+
+.admin-map-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--muted-foreground); margin-top: 10px; }
+.admin-map-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.admin-legend-ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #F59E0B; }
+.admin-legend-faded { width: 12px; height: 12px; border-radius: 50%; background: var(--muted-foreground); opacity: 0.5; }
+.admin-legend-trip { width: 14px; height: 14px; border-radius: 50%; background: color-mix(in srgb, #F59E0B 40%, transparent); }
+
+/* Usage */
+.admin-price-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
+.admin-price-form .admin-field { margin: 0; }
+.admin-price-form .admin-kes-input input { width: 90px; }
+.admin-table .strong { font-weight: 700; }
+.admin-main code { font-family: var(--font-mono); font-size: 0.92em; }
+
+/* Data tools */
+.admin-file-btn { cursor: pointer; }
+.admin-import-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 12px; }
+.admin-import-summary p { margin: 0; }
+.admin-import-table { max-height: 480px; overflow-y: auto; }
+.admin-pill.import-ok,
+.admin-pill.import-added { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.admin-pill.import-duplicate { color: var(--amber); background: color-mix(in srgb, var(--amber) 15%, transparent); }
+.admin-pill.import-invalid { color: var(--red); background: color-mix(in srgb, var(--red) 13%, transparent); }
+.admin-import-table .admin-queue-sub { -webkit-line-clamp: 3; }
+.admin-inline-field { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
+.admin-keep-btn { margin-top: 6px; }
+.admin-main section + section { margin-top: 12px; }
+.admin-main table a,
+.admin-main a.admin-queue-title { color: var(--primary); text-decoration: none; }
+.admin-main table a:hover,
+.admin-main a.admin-queue-title:hover { text-decoration: underline; }
+.admin-main a.admin-row-btn { color: inherit; }

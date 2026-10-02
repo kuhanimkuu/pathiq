@@ -18,6 +18,7 @@ import Profile from './pages/Profile'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import ScoutSubmit from './pages/ScoutSubmit'
 import { useAuth } from './context/useAuth'
+import { suspensionNotice } from './lib/suspension'
 import './App.css'
 
 // /app/* needs a session, but never shows an auth wall to get one — arriving
@@ -72,7 +73,8 @@ function RoutesRedirect() {
 
 function AppShell() {
   const online = useOnline()
-  const { authNotice, clearAuthNotice } = useAuth()
+  const { authNotice, clearAuthNotice, profile } = useAuth()
+  const suspended = suspensionNotice(profile)
   return (
     <div className="app-shell">
       <TopBar />
@@ -80,6 +82,11 @@ function AppShell() {
         {!online && (
           <div className="offline-banner" role="status">
             You&apos;re offline. Maps, routes and live data come back when you reconnect.
+          </div>
+        )}
+        {suspended && (
+          <div className="offline-banner auth-notice" role="status">
+            <span>{suspended}</span>
           </div>
         )}
         {authNotice && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Plus, Search } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Plus, Search, Upload } from 'lucide-react'
 import { fetchGems, saveGem, setGemStatus, deleteGem } from '../../lib/admin'
 import { GEM_STYLE, gemStyle } from '../../lib/placeStyles'
 import { GemBadge } from '../../components/PlaceIcons'
@@ -16,7 +16,7 @@ const STATUS_FILTERS = [
   { value: null, label: 'All' },
 ]
 
-function GemEditor({ gem, onClose, onSaved }) {
+export function GemEditor({ gem, onClose, onSaved }) {
   const isNew = !gem.id
   const [name, setName] = useState(gem.name ?? '')
   const [category, setCategory] = useState(gem.category ?? 'attractions')
@@ -146,6 +146,7 @@ function GemEditor({ gem, onClose, onSaved }) {
 }
 
 function GemsManager({ onChanged }) {
+  const navigate = useNavigate()
   const [status, setStatus] = useState('verified')
   const [category, setCategory] = useState(null)
   const [search, setSearch] = useState('')
@@ -182,9 +183,14 @@ function GemsManager({ onChanged }) {
     <div>
       <div className="admin-title-row">
         <h1 className="page-title">Hidden Gems</h1>
-        <button className="admin-btn primary" onClick={() => setEditing({})}>
-          <Plus size={16} /> Add gem
-        </button>
+        <span className="admin-title-actions">
+          <Link className="admin-btn" to="/app/admin/data">
+            <Upload size={16} /> Import / duplicates
+          </Link>
+          <button className="admin-btn primary" onClick={() => setEditing({})}>
+            <Plus size={16} /> Add gem
+          </button>
+        </span>
       </div>
 
       <div className="admin-toolbar">
@@ -235,9 +241,9 @@ function GemsManager({ onChanged }) {
             </thead>
             <tbody>
               {data.rows.map((g) => (
-                <tr key={g.id} onClick={() => setEditing(g)}>
+                <tr key={g.id} onClick={() => navigate(`/app/admin/gems/${g.id}`)}>
                   <td>
-                    <button type="button" className="admin-row-btn" onClick={() => setEditing(g)}>
+                    <button type="button" className="admin-row-btn" onClick={() => navigate(`/app/admin/gems/${g.id}`)}>
                       <GemBadge category={g.category} size={24} />
                       <span>
                         <span className="admin-queue-title">{g.name}</span>

@@ -43,3 +43,13 @@ export function useBefore(until) {
   }, [until])
   return until > now
 }
+
+// "Tue 29 Sept" for a yyyy-mm-dd day.
+export const dayLabel = (d, opts = { weekday: 'short', day: 'numeric', month: 'short' }) =>
+  new Date(d + 'T12:00:00').toLocaleDateString('en-KE', opts)
+
+// "until lifted" (stored as Postgres infinity) or "until 9 Oct, 14:00".
+export function suspendedUntilText(until) {
+  const d = new Date(until)
+  return !until || until === 'infinity' || Number.isNaN(d.getTime()) ? 'until lifted' : `until ${formatDate(until)}`
+}

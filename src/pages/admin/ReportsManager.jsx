@@ -30,7 +30,7 @@ const displayStatus = (r) => (r.status === 'verified' && !r.is_live ? 'expired' 
 const toDateInput = (iso) => (iso ? new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }) : '')
 const fromDateInput = (d) => (d ? new Date(`${d}T23:59:00+03:00`).toISOString() : null)
 
-function ReportEditor({ report, onClose, onSaved }) {
+export function ReportEditor({ report, onClose, onSaved }) {
   const isNew = !report.id
   const [type, setType] = useState(report.type ?? 'pothole')
   const [severity, setSeverity] = useState(report.severity ?? 3)

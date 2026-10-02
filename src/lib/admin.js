@@ -193,3 +193,100 @@ export function payoutsCsv(payouts) {
   }
   return lines.join('\n')
 }
+
+// ── Map of everything ──
+export const fetchMapPoints = ({ south, west, north, east }) =>
+  rpc('admin_map_points', { p_south: south, p_west: west, p_north: north, p_east: east })
+
+// ── Detail pages ──
+export const fetchUserDetail = (userId) => rpc('admin_user_detail', { p_user_id: userId })
+export const fetchGemDetail = (gemId) => rpc('admin_gem_detail', { p_gem_id: gemId })
+
+// One report by id, shaped like an admin_road_reports row (the caller
+// already has its lat/lng from the map).
+export async function fetchRoadReport(id, { lat, lng }) {
+  const { data, error } = await supabase
+    .from('road_reports')
+    .select(
+      'id, type, severity, description, status, photo_path, review_note, created_at, expires_at, reported_by, ' +
+        'reporter:profiles!road_reports_reported_by_fkey(username, role), reviewer:profiles!road_reports_reviewed_by_fkey(username)',
+    )
+    .eq('id', id)
+    .single()
+  if (error) throw error
+  return {
+    ...data,
+    lat,
+    lng,
+    is_live: data.status === 'verified' && (!data.expires_at || new Date(data.expires_at) > new Date()),
+    reporter_username: data.reporter?.username ?? null,
+    reporter_role: data.reporter?.role ?? null,
+    reviewer_username: data.reviewer?.username ?? null,
+  }
+}
+
+// ── Suspensions ── (until null = until lifted)
+export const suspendUser = (userId, until, reason) =>
+  rpc('admin_suspend_user', { p_user_id: userId, p_until: until, p_reason: reason })
+export const unsuspendUser = (userId) => rpc('admin_unsuspend_user', { p_user_id: userId })
+
+// ── Usage and cost ──
+export const fetchUsage = (days = 30) => rpc('admin_usage', { p_days: days })
+
+export async function saveRoutePrices(prices) {
+  const { data, error } = await supabase
+    .from('app_settings')
+    .update({ value: prices })
+    .eq('key', 'routes_usd_per_1000')
+    .select()
+  if (error) throw error
+  if (!data?.length) throw new Error('Prices not saved')
+}
+
+// ── Data tools ──
+export const importGems = (rows, commit) => rpc('admin_import_gems', { p_rows: rows, p_commit: commit })
+export const fetchDuplicateGems = (radiusM = 100) => rpc('admin_duplicate_gems', { p_radius_m: radiusM })
+export const mergeGems = (keepId, removeId) => rpc('admin_merge_gems', { p_keep: keepId, p_remove: removeId })
+
+// Small CSV reader for the import: quoted fields, "" escapes, commas and
+// newlines inside quotes. The first row is the header.
+export function parseCsv(text) {
+  const rows = []
+  let row = []
+  let field = ''
+  let quoted = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') {
+        field += '"'
+        i++
+      } else if (c === '"') quoted = false
+      else field += c
+    } else if (c === '"') quoted = true
+    else if (c === ',') {
+      row.push(field)
+      field = ''
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++
+      row.push(field)
+      rows.push(row)
+      row = []
+      field = ''
+    } else field += c
+  }
+  if (field !== '' || row.length) {
+    row.push(field)
+    rows.push(row)
+  }
+  const nonEmpty = rows.filter((r) => r.some((v) => v.trim() !== ''))
+  if (nonEmpty.length === 0) return []
+  const header = nonEmpty[0].map((h) => h.trim().toLowerCase())
+  const alias = { latitude: 'lat', longitude: 'lng', lon: 'lng', long: 'lng', title: 'name', type: 'category' }
+  const keys = header.map((h) => alias[h] ?? h)
+  return nonEmpty.slice(1).map((r) => Object.fromEntries(keys.map((k, i) => [k, (r[i] ?? '').trim()])))
+}
+
+export const GEM_IMPORT_TEMPLATE =
+  'name,category,lat,lng,description,address\n' +
+  '"Mama Oliech Restaurant",food,-1.2921,36.7870,"Famous fried tilapia","Marcus Garvey Rd, Kilimani"\n'

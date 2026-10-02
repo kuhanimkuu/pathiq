@@ -4,6 +4,7 @@ import { useAuth } from '../context/useAuth'
 import { submitRoadReport, submitGem, uploadScoutPhoto } from '../lib/scouts'
 import { getCurrentPosition } from '../lib/gems'
 import { locationHelp } from '../lib/locationHelp'
+import { suspensionNotice } from '../lib/suspension'
 
 const reportTypes = [
   { value: 'pothole', label: 'Pothole' },
@@ -97,6 +98,16 @@ function Scout() {
         <p className="list-row-sub">
           This area is for approved Scouts. Apply from your Profile page to get access.
         </p>
+      </div>
+    )
+  }
+
+  const suspended = suspensionNotice(profile)
+  if (suspended) {
+    return (
+      <div className="profile-page">
+        <h1 className="page-title">Scout tools</h1>
+        <p className="list-row-sub">Scout tools are paused while your account is suspended (see the note above).</p>
       </div>
     )
   }

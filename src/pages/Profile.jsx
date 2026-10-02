@@ -7,6 +7,7 @@ import { fetchMyScoutApplication, applyAsScout, MPESA_PHONE_PATTERN } from '../l
 import { getInitialTheme, applyTheme } from '../lib/theme'
 import { ensureNotificationPermission, notificationsSupported } from '../lib/driveAssist'
 import { loadAlertPrefs, saveAlertPrefs, ALERT_CATEGORIES, DETOUR_CHOICES_MIN } from '../lib/alertPrefs'
+import GoogleButton from '../components/GoogleButton'
 import { canInstall, isInstalled, isIos, onInstallChange, promptInstall } from '../lib/installPrompt'
 
 const CATEGORY_LABEL = {
@@ -15,7 +16,7 @@ const CATEGORY_LABEL = {
 
 function Profile() {
   const { user, refresh } = useUser()
-  const { session, profile, isGuest, signOut, upgradeGuest, setNotificationsOn } = useAuth()
+  const { session, profile, isGuest, signOut, upgradeGuest, setNotificationsOn, linkGoogle, googleEnabled } = useAuth()
   const navigate = useNavigate()
   const [darkMode, setDarkMode] = useState(() => getInitialTheme() === 'dark')
   const [notifyNote, setNotifyNote] = useState('')
@@ -156,9 +157,16 @@ function Profile() {
         <div className="section-card">
           <div className="section-title">Save your account</div>
           <p className="auth-sub" style={{ marginBottom: 14 }}>
-            You&apos;re browsing as a guest. Add an email and password to keep your saved gems and trips.
+            You&apos;re browsing as a guest. Save your account{googleEnabled ? ' with Google or' : ' with'} an email and
+            password to keep your saved gems and trips.
           </p>
           {upgradeError && <p className="auth-error">{upgradeError}</p>}
+          {googleEnabled && (
+            <>
+              <GoogleButton label="Save with Google" onClick={() => linkGoogle('/app/profile')} onError={setUpgradeError} />
+              <div className="auth-divider"><span>or with email</span></div>
+            </>
+          )}
           <form className="auth-form" onSubmit={handleUpgrade}>
             <label className="auth-label" htmlFor="upgrade-username">Username</label>
             <input id="upgrade-username" name="username" className="auth-input" type="text" minLength={3} required />

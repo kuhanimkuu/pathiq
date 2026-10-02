@@ -263,6 +263,41 @@
   cursor: pointer;
 }
 
+/* "Continue with Google" — colours from Google's sign-in branding guidelines
+   (dark theme by default, light theme under html.light). */
+.google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #E3E3E3;
+  background: #131314;
+  border: 1px solid #8E918F;
+  border-radius: 12px;
+  padding: 11px 14px;
+  cursor: pointer;
+}
+.google-btn:hover:not(:disabled) { background: #1f1f20; }
+.google-btn:disabled { opacity: 0.7; cursor: default; }
+html.light .google-btn { color: #1F1F1F; background: #FFFFFF; border-color: #747775; }
+html.light .google-btn:hover:not(:disabled) { background: #F8F9FA; }
+.auth-modal .google-btn { margin-top: 16px; }
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 4px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.auth-divider::before,
+.auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
 /* ── TOP BAR (logo) ── */
 .top-bar {
   grid-area: header;
@@ -2013,3 +2048,9 @@ html.light .map-alert {
   font-size: 12.5px;
   color: var(--muted-foreground);
 }
+
+/* Google sign-in problems after the redirect back (AuthProvider.takeOAuthError). */
+.auth-notice { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.app-content > .auth-notice { max-width: none; }
+.auth-notice button { font-size: 20px; line-height: 1; color: inherit; background: none; border: none; cursor: pointer; }
+.landing-auth-notice { margin: 12px auto; max-width: 1100px; width: calc(100% - 32px); }

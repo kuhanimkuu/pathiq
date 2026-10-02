@@ -19,13 +19,13 @@ export function useDebounced(value, ms = 300) {
 export const ADMIN_UNLOCK_MS = 60 * 60 * 1000
 
 // When the admin dashboard locks again: one hour after the last password
-// sign-in recorded in the access token's `amr` claim (the same claim the
+// or Google sign-in recorded in the access token's `amr` claim (the same claim the
 // database checks). 0 when there's none, e.g. a guest session.
 export function adminUnlockedUntil(accessToken) {
   try {
     const part = accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
     const claims = JSON.parse(atob(part.padEnd(part.length + ((4 - (part.length % 4)) % 4), '=')))
-    const times = (claims.amr ?? []).filter((m) => ['password', 'totp'].includes(m.method)).map((m) => m.timestamp)
+    const times = (claims.amr ?? []).filter((m) => ['password', 'oauth', 'totp'].includes(m.method)).map((m) => m.timestamp)
     return times.length ? Math.max(...times) * 1000 + ADMIN_UNLOCK_MS : 0
   } catch {
     return 0

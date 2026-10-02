@@ -14,8 +14,8 @@
 -- =====================================================================
 
 -- Being signed in as an admin isn't enough: admin powers also need the
--- password to have been entered in the last hour (the dashboard asks for it
--- again). Supabase records each sign-in method and when it was used in the
+-- password (or a Google sign-in, for admins who use Google) to have been
+-- entered in the last hour (the dashboard asks for it again). Supabase records each sign-in method and when it was used in the
 -- session's JWT `amr` claim; refreshing the token keeps the original time,
 -- so only a new password sign-in renews it. This stops anyone holding an
 -- admin's session (an unlocked laptop, a stolen token) from acting as admin.
@@ -29,7 +29,7 @@ as $$
     from jsonb_array_elements(
       case when jsonb_typeof(auth.jwt() -> 'amr') = 'array' then auth.jwt() -> 'amr' else '[]'::jsonb end
     ) m
-    where m ->> 'method' in ('password', 'totp')
+    where m ->> 'method' in ('password', 'oauth', 'totp')
       and to_timestamp((m ->> 'timestamp')::double precision) > now() - interval '1 hour'
   )
 $$;

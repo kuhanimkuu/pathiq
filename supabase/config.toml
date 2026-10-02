@@ -149,7 +149,8 @@ enabled = true
 # in emails.
 site_url = "http://127.0.0.1:3000"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+# Local dev servers, for Google sign-in coming back to the app.
+additional_redirect_urls = ["https://127.0.0.1:3000", "http://localhost:5173/**", "https://localhost:5173/**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).
@@ -166,7 +167,10 @@ enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = true
 # Allow/disallow testing manual linking of accounts
-enable_manual_linking = false
+# On: guests save their account by linking Google (supabase.auth.linkIdentity),
+# which keeps their saved gems and trips. Also turn on "Allow manual linking"
+# in the hosted project's Auth settings.
+enable_manual_linking = true
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
 minimum_password_length = 6
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
@@ -317,6 +321,21 @@ url = ""
 skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
 email_optional = false
+
+# Sign in with Google. Needs an OAuth client (type "Web application") from
+# Google Cloud Console with this authorised redirect URI:
+#   local:  http://127.0.0.1:54321/auth/v1/callback
+#   hosted: https://<project-ref>.supabase.co/auth/v1/callback
+# Put the ID and secret in supabase/.env (never commit them), then set
+# enabled = true. On the hosted project, enable Google in the dashboard
+# (Authentication → Sign In / Providers) rather than with `config push`.
+[auth.external.google]
+enabled = false
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+redirect_uri = ""
+url = ""
+skip_nonce_check = false
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
 # You can configure "web3" rate limit in the [auth.rate_limit] section and set up [auth.captcha] if self-hosting.

@@ -72,6 +72,7 @@ function RoutesRedirect() {
 
 function AppShell() {
   const online = useOnline()
+  const { authNotice, clearAuthNotice } = useAuth()
   return (
     <div className="app-shell">
       <TopBar />
@@ -79,6 +80,14 @@ function AppShell() {
         {!online && (
           <div className="offline-banner" role="status">
             You&apos;re offline. Maps, routes and live data come back when you reconnect.
+          </div>
+        )}
+        {authNotice && (
+          <div className="offline-banner auth-notice" role="alert">
+            <span>{authNotice}</span>
+            <button type="button" onClick={clearAuthNotice} aria-label="Dismiss">
+              &times;
+            </button>
           </div>
         )}
         <Routes>

@@ -4,6 +4,7 @@ import { Menu, X } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
 import '../Landing.css'
 import Logo from '../../components/Logo'
+import GoogleButton from '../../components/GoogleButton'
 
 // Map-first, kept minimal for the casual driver — no Pricing or Developers
 // here, those are for the developer/business tiers, not the main nav. Road
@@ -25,7 +26,7 @@ function MarketingLayout() {
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
   const navigate = useNavigate()
-  const { signIn, signUp, continueAsGuest } = useAuth()
+  const { signIn, signUp, continueAsGuest, signInWithGoogle, googleEnabled, authNotice, clearAuthNotice } = useAuth()
 
   // Only "Sign in" opens this now. Every other "enter the app" CTA is a
   // plain <Link to="/app/..."> — RequireSession (App.jsx) silently starts a
@@ -96,6 +97,14 @@ function MarketingLayout() {
 
   return (
     <div className="landing">
+      {authNotice && (
+        <div className="offline-banner auth-notice landing-auth-notice" role="alert">
+          <span>{authNotice}</span>
+          <button type="button" onClick={clearAuthNotice} aria-label="Dismiss">
+            &times;
+          </button>
+        </div>
+      )}
       {showAuth && (
         <div className="auth-overlay" onClick={closeAuth}>
           <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
@@ -111,6 +120,12 @@ function MarketingLayout() {
                 <h3>Sign in</h3>
                 <p className="auth-sub">Welcome back. Enter your details to continue.</p>
                 {authError && <p className="auth-error">{authError}</p>}
+                {googleEnabled && (
+                  <>
+                    <GoogleButton onClick={() => signInWithGoogle('/app')} onError={setAuthError} />
+                    <div className="auth-divider"><span>or with email</span></div>
+                  </>
+                )}
                 <form className="auth-form" onSubmit={handleSignIn}>
                   <label className="auth-label" htmlFor="signin-email">Email</label>
                   <input id="signin-email" name="email" className="auth-input" type="email" autoComplete="email" required />
@@ -135,6 +150,12 @@ function MarketingLayout() {
                 <h3>Create your account</h3>
                 <p className="auth-sub">Join PathIQ Navigators to get started.</p>
                 {authError && <p className="auth-error">{authError}</p>}
+                {googleEnabled && (
+                  <>
+                    <GoogleButton onClick={() => signInWithGoogle('/app')} onError={setAuthError} />
+                    <div className="auth-divider"><span>or with email</span></div>
+                  </>
+                )}
                 <form className="auth-form" onSubmit={handleSignUp}>
                   <label className="auth-label" htmlFor="signup-username">Username</label>
                   <input id="signup-username" name="username" className="auth-input" type="text" autoComplete="username" minLength={3} required />

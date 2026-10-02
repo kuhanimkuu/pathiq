@@ -2,6 +2,10 @@
 -- gem or road report, batch M-Pesa payouts, reject reasons, and an audit log
 -- of everything an admin changes.
 --
+-- Written to be safe to re-run (create or replace / if not exists): an
+-- early version of this file was applied to the hosted project by hand,
+-- outside migration tracking, and `db push` has to run over the top of it.
+--
 -- Every function here is security definer and starts with admin_guard(): the
 -- caller must be an admin, and admin calls share a generous per-admin rate
 -- limit, so even a stolen admin session can't scrape or rewrite at speed.
@@ -19,7 +23,7 @@
 -- session's JWT `amr` claim; refreshing the token keeps the original time,
 -- so only a new password sign-in renews it. This stops anyone holding an
 -- admin's session (an unlocked laptop, a stolen token) from acting as admin.
-create function public.admin_auth_fresh()
+create or replace function public.admin_auth_fresh()
 returns boolean
 language sql
 stable
@@ -54,7 +58,7 @@ $$;
 -- Guard
 -- =====================================================================
 
-create function public.admin_guard()
+create or replace function public.admin_guard()
 returns void
 language plpgsql
 security definer
@@ -81,15 +85,15 @@ revoke execute on function public.admin_guard() from public, anon, authenticated
 -- Reject reasons (shown to the Scout on their own submission)
 -- =====================================================================
 
-alter table public.gems add column review_note text check (char_length(review_note) <= 500);
-alter table public.road_reports add column review_note text check (char_length(review_note) <= 500);
-alter table public.scout_applications add column review_note text check (char_length(review_note) <= 500);
+alter table public.gems add column if not exists review_note text check (char_length(review_note) <= 500);
+alter table public.road_reports add column if not exists review_note text check (char_length(review_note) <= 500);
+alter table public.scout_applications add column if not exists review_note text check (char_length(review_note) <= 500);
 
 -- =====================================================================
 -- Audit log
 -- =====================================================================
 
-create table public.admin_audit_log (
+create table if not exists public.admin_audit_log (
   id           bigint generated always as identity primary key,
   admin_id     uuid references public.profiles (id) on delete set null,
   action       text not null,   -- create, update, delete, status:<new status>, role:<new role>
@@ -100,13 +104,14 @@ create table public.admin_audit_log (
   created_at   timestamptz not null default now()
 );
 
-create index admin_audit_log_created_idx on public.admin_audit_log (created_at desc);
-create index admin_audit_log_target_idx on public.admin_audit_log (target_table, target_id);
+create index if not exists admin_audit_log_created_idx on public.admin_audit_log (created_at desc);
+create index if not exists admin_audit_log_target_idx on public.admin_audit_log (target_table, target_id);
 
 -- Admins read it; nobody writes it from a client. Rows come only from the
 -- trigger and functions below (security definer), and are never edited.
 alter table public.admin_audit_log enable row level security;
 
+drop policy if exists "admin_audit_log: admins read" on public.admin_audit_log;
 create policy "admin_audit_log: admins read" on public.admin_audit_log
   for select to authenticated
   using (public.is_admin());
@@ -116,7 +121,7 @@ grant select on public.admin_audit_log to authenticated;
 
 -- Logs any write an admin makes to a review table. Raw coordinates are left
 -- out (they're binary in jsonb); a moved location shows as "moved".
-create function public.audit_admin_write()
+create or replace function public.audit_admin_write()
 returns trigger
 language plpgsql
 security definer
@@ -179,26 +184,26 @@ $$;
 
 revoke execute on function public.audit_admin_write() from public, anon, authenticated;
 
-create trigger gems_audit after insert or update or delete on public.gems
+create or replace trigger gems_audit after insert or update or delete on public.gems
   for each row execute function public.audit_admin_write();
-create trigger road_reports_audit after insert or update or delete on public.road_reports
+create or replace trigger road_reports_audit after insert or update or delete on public.road_reports
   for each row execute function public.audit_admin_write();
-create trigger scout_applications_audit after insert or update or delete on public.scout_applications
+create or replace trigger scout_applications_audit after insert or update or delete on public.scout_applications
   for each row execute function public.audit_admin_write();
-create trigger scout_earnings_audit after insert or update or delete on public.scout_earnings
+create or replace trigger scout_earnings_audit after insert or update or delete on public.scout_earnings
   for each row execute function public.audit_admin_write();
-create trigger task_rates_audit after insert or update or delete on public.task_rates
+create or replace trigger task_rates_audit after insert or update or delete on public.task_rates
   for each row execute function public.audit_admin_write();
 
 -- =====================================================================
 -- Review functions, now with an optional note (the reject reason)
 -- =====================================================================
 
-drop function public.review_scout_application(uuid, boolean);
-drop function public.review_gem(uuid, boolean, public.earning_task);
-drop function public.review_road_report(uuid, boolean, public.earning_task);
+drop function if exists public.review_scout_application(uuid, boolean);
+drop function if exists public.review_gem(uuid, boolean, public.earning_task);
+drop function if exists public.review_road_report(uuid, boolean, public.earning_task);
 
-create function public.review_scout_application(
+create or replace function public.review_scout_application(
   p_application_id uuid,
   p_approve        boolean,
   p_note           text default null
@@ -240,7 +245,7 @@ begin
 end;
 $$;
 
-create function public.review_gem(
+create or replace function public.review_gem(
   p_gem_id  uuid,
   p_approve boolean,
   p_task    public.earning_task default 'gem_discovery',
@@ -282,7 +287,7 @@ begin
 end;
 $$;
 
-create function public.review_road_report(
+create or replace function public.review_road_report(
   p_report_id uuid,
   p_approve   boolean,
   p_task      public.earning_task default 'road_report',
@@ -361,7 +366,7 @@ $$;
 -- =====================================================================
 
 -- Headline numbers plus 14 days of daily activity (Nairobi days).
-create function public.admin_overview()
+create or replace function public.admin_overview()
 returns jsonb
 language plpgsql
 security definer
@@ -427,7 +432,7 @@ $$;
 -- =====================================================================
 
 -- p_sort: 'newest' | 'submissions' (Scout leaderboard) | 'owed'
-create function public.admin_users(
+create or replace function public.admin_users(
   p_search         text default null,
   p_role           public.user_role default null,
   p_include_guests boolean default false,
@@ -501,7 +506,7 @@ $$;
 
 -- Promote or demote. An admin can't change their own role (so the last admin
 -- can't lock everyone out), and guests can't become Scouts or admins.
-create function public.admin_set_role(p_user_id uuid, p_role public.user_role)
+create or replace function public.admin_set_role(p_user_id uuid, p_role public.user_role)
 returns public.profiles
 language plpgsql
 security definer
@@ -549,7 +554,7 @@ $$;
 
 -- Pending gems come oldest first (a queue); everything else newest first.
 -- nearby_verified counts verified gems within 150 m, to spot duplicates.
-create function public.admin_gems(
+create or replace function public.admin_gems(
   p_status   public.review_status default null,
   p_search   text default null,
   p_category public.gem_category default null,
@@ -616,7 +621,7 @@ $$;
 
 -- p_live: true = verified and unexpired, false = verified but expired.
 -- nearby_live counts live reports within 100 m, to spot duplicates.
-create function public.admin_road_reports(
+create or replace function public.admin_road_reports(
   p_status public.review_status default null,
   p_type   public.road_report_type default null,
   p_live   boolean default null,
@@ -676,7 +681,7 @@ begin
 end;
 $$;
 
-create function public.admin_check_point(p_lat double precision, p_lng double precision)
+create or replace function public.admin_check_point(p_lat double precision, p_lng double precision)
 returns void
 language plpgsql
 immutable
@@ -692,7 +697,7 @@ revoke execute on function public.admin_check_point(double precision, double pre
 
 -- Create (p_id null: added straight to the map, verified) or edit a gem.
 -- Status changes go through review_gem (pending) or admin_set_gem_status.
-create function public.admin_save_gem(
+create or replace function public.admin_save_gem(
   p_id          uuid,
   p_name        text,
   p_category    public.gem_category,
@@ -745,7 +750,7 @@ $$;
 
 -- Hide a verified gem (rejected) or put a rejected one back (verified).
 -- Pending gems are reviewed with review_gem, which also pays the Scout.
-create function public.admin_set_gem_status(p_id uuid, p_status public.review_status, p_note text default null)
+create or replace function public.admin_set_gem_status(p_id uuid, p_status public.review_status, p_note text default null)
 returns public.gems
 language plpgsql
 security definer
@@ -773,7 +778,7 @@ $$;
 
 -- Create (verified, expiring by type) or edit a road report. p_expires_at
 -- extends or shortens its life; to clear it now use admin_clear_road_report.
-create function public.admin_save_road_report(
+create or replace function public.admin_save_road_report(
   p_id          uuid,
   p_type        public.road_report_type,
   p_severity    smallint,
@@ -824,7 +829,7 @@ begin
 end;
 $$;
 
-create function public.admin_set_report_status(p_id uuid, p_status public.review_status, p_note text default null)
+create or replace function public.admin_set_report_status(p_id uuid, p_status public.review_status, p_note text default null)
 returns public.road_reports
 language plpgsql
 security definer
@@ -859,7 +864,7 @@ end;
 $$;
 
 -- "Road fixed": takes a verified report off the map now, by the server's clock.
-create function public.admin_clear_road_report(p_id uuid)
+create or replace function public.admin_clear_road_report(p_id uuid)
 returns public.road_reports
 language plpgsql
 security definer
@@ -888,7 +893,7 @@ $$;
 
 -- What each Scout is owed, one row per Scout, with the exact earnings so the
 -- payout below pays only what the admin saw.
-create function public.admin_payouts()
+create or replace function public.admin_payouts()
 returns table (
   scout_id     uuid,
   username     text,
@@ -918,7 +923,7 @@ end;
 $$;
 
 -- One M-Pesa transfer covering several of a Scout's approved earnings.
-create function public.admin_pay_scout(p_scout_id uuid, p_earning_ids uuid[], p_mpesa_ref text)
+create or replace function public.admin_pay_scout(p_scout_id uuid, p_earning_ids uuid[], p_mpesa_ref text)
 returns table (items integer, total_kes integer)
 language plpgsql
 security definer

@@ -24,7 +24,10 @@ import {
 // Google responses are cached this long. Scoring runs on every request, so new
 // road reports show up straight away.
 const CACHE_TTL_MS = 10 * 60 * 1000
-const REPORT_CORRIDOR_M = 50
+// How far either side of the route line a report can be and still count as
+// on the road — the whole length of the route is always searched. Allows for
+// GPS error in where a scout dropped the report.
+const REPORT_CORRIDOR_M = 100
 const MAX_ALERTS = 3
 const MAX_STOPS = 5
 
@@ -255,6 +258,8 @@ Deno.serve(async (req) => {
         type: row.type,
         severity: row.severity,
         routeFraction: row.route_fraction,
+        lat: row.lat,
+        lng: row.lng,
       })),
       // The worst problems on this route, for the UI to list.
       alerts: [...r.live]

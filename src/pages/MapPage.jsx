@@ -13,7 +13,7 @@ import { GemPin, ReportPin, GemBadge, ReportBadge, GemGlyph } from '../component
 import { gemStyle } from '../lib/placeStyles'
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip'
 import { startTrip, endTrip, recordReroute, recordGemEvent, fetchRecentDestinations } from '../lib/trips'
-import { loadAlertPrefs, detourMinutes, corridorForDetour } from '../lib/alertPrefs'
+import { loadAlertPrefs, saveAlertPrefs, detourMinutes, corridorForDetour, DETOUR_CHOICES_MIN } from '../lib/alertPrefs'
 import { holdWakeLock, notifyIfHidden } from '../lib/driveAssist'
 import NavigationHud from '../components/NavigationHud'
 import DestinationSearch from '../components/DestinationSearch'
@@ -38,6 +38,8 @@ const GEM_AHEAD_M = 600 // "approaching" alert when a gem is this close ahead on
 const GEM_PASSED_MIN_M = 20 // "just passed" alert once it's this far behind…
 const GEM_PASSED_MAX_M = 400 // …and not later than this
 const GEM_ALERT_MS = 10_000
+const REPORT_WARN_M = 2000 // early warning for a road report ahead: time to take another road
+const REPORT_NEAR_M = 300 // and a reminder just before it (severity 3+)
 // Live navigation needs the driver at the start of the route. A route starting
 // somewhere else (or planned with location off) can only be previewed.
 const LIVE_START_M = 150
@@ -193,7 +195,14 @@ function MapPage() {
   const [plan, setPlan] = useState(null)
   const [corridor, setCorridor] = useState({ routeId: null, gems: [] })
   // Read once per visit: they're changed on the Profile page.
-  const [alertPrefs] = useState(loadAlertPrefs)
+  const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
+  const [choosingDetour, setChoosingDetour] = useState(false)
+  function chooseDetour(maxDetourMin) {
+    const next = { ...alertPrefs, enabled: true, maxDetourMin, detourAsked: true }
+    saveAlertPrefs(next)
+    setAlertPrefs(next) // refetches the route's gems for the new detour
+    setChoosingDetour(false)
+  }
   const [routing, setRouting] = useState(false)
   const [routeError, setRouteError] = useState('')
 
@@ -201,6 +210,7 @@ function MapPage() {
   //   tripId, reroutes, startedAt }
   const [nav, setNav] = useState(null)
   const [gemAlert, setGemAlert] = useState(null) // { type: 'approaching' | 'passed', gem, aheadM, detourMin, key }
+  const [reportAlert, setReportAlert] = useState(null) // { report, aheadM, key }
   // While navigating the camera follows the driver, until they drag the map
   // to look along the route; "Re-centre" turns it back on.
   const [follow, setFollow] = useState(true)
@@ -243,9 +253,11 @@ function MapPage() {
     const model = buildNavModel(selectedRoute)
     const placed = missing
       .map((h) => {
+        if (h.lat != null) return { id: h.id, type: h.type, severity: h.severity, lat: h.lat, lng: h.lng }
+        // Older routes function: no coordinates, so place it on the route.
         const s = Math.min(h.routeFraction * model.total, model.total - 1)
         const [at] = slicePath(model, s, s + 1)
-        return at && { id: h.id, type: h.type, severity: h.severity, lat: at.lat, lng: at.lng, onRouteOnly: true }
+        return at && { id: h.id, type: h.type, severity: h.severity, lat: at.lat, lng: at.lng }
       })
       .filter(Boolean)
     return [...incidents, ...placed]
@@ -534,6 +546,7 @@ function MapPage() {
     }
     alertedRef.current = new Set()
     setGemAlert(null)
+    setReportAlert(null)
     setNav(next)
     if (!resumed && userId) {
       startTrip(userId, { origin: livePos ?? position, destination, destinationName, option })
@@ -567,6 +580,7 @@ function MapPage() {
     setNav(null)
     setNavError('')
     setGemAlert(null)
+    setReportAlert(null)
     clearActiveTrip()
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
   }
@@ -656,6 +670,32 @@ function MapPage() {
     }
   }
 
+  // Road reports ahead: an early warning while there's still time to choose
+  // another road, and a reminder just before it for the serious ones. Once
+  // each per report per trip.
+  function checkReportAlerts(current, s) {
+    if (!layers.reports || selectedRoute?.id !== current.routeId) return
+    for (const h of selectedRoute.hazards ?? []) {
+      const ahead = h.routeFraction * current.model.total - s
+      if (ahead <= 0) continue
+      let type = null
+      if (ahead <= REPORT_NEAR_M && h.severity >= 3) type = 'near'
+      else if (ahead <= REPORT_WARN_M && ahead > REPORT_NEAR_M) type = 'early'
+      if (!type || alertedRef.current.has(`r${h.id}:${type}`)) continue
+      alertedRef.current.add(`r${h.id}:${type}`)
+      if (type === 'near') alertedRef.current.add(`r${h.id}:early`)
+      setReportAlert({ report: h, aheadM: ahead, key: `r${h.id}:${type}` })
+      const what = reportTypeLabel(h.type).toLowerCase()
+      const message =
+        type === 'early'
+          ? `Heads up: ${what} reported ${spokenDistance(ahead)} ahead, severity ${h.severity}.`
+          : `${reportTypeLabel(h.type)} ahead in ${spokenDistance(ahead)}.`
+      speak(message)
+      if (profile?.notifications_on !== false) notifyIfHidden('Road report ahead', message)
+      return // one alert at a time
+    }
+  }
+
   function handleFix(pos) {
     // The first real fix after starting with location off: fetch what's
     // around the driver, and move there unless a route is on screen.
@@ -698,6 +738,7 @@ function MapPage() {
     if (allStopsDone && (distanceM(pos, current.destination) < ARRIVE_M || current.model.total - t.s < ARRIVE_M)) {
       setNav({ ...current, status: 'arrived' })
       setGemAlert(null)
+      setReportAlert(null)
       clearActiveTrip()
       if (current.tripId) endTrip(current.tripId, { arrived: true, reroutes: current.reroutes }).catch(() => {})
       speak(`You have arrived at ${current.destinationName}.`)
@@ -711,6 +752,7 @@ function MapPage() {
     const updated = { ...current, step, stopsReached }
     setNav(updated)
     announce(step)
+    checkReportAlerts(current, t.s)
     checkGemAlerts(current, t.s)
     // Keep Home's Active route card roughly current without writing on every fix.
     if (
@@ -850,6 +892,12 @@ function MapPage() {
     const timer = setTimeout(() => setGemAlert((a) => (a?.key === gemAlertKey ? null : a)), GEM_ALERT_MS)
     return () => clearTimeout(timer)
   }, [gemAlertKey])
+  const reportAlertKey = reportAlert?.key
+  useEffect(() => {
+    if (!reportAlertKey) return
+    const timer = setTimeout(() => setReportAlert((a) => (a?.key === reportAlertKey ? null : a)), GEM_ALERT_MS)
+    return () => clearTimeout(timer)
+  }, [reportAlertKey])
 
   function flash(text) {
     setNotice(text)
@@ -1345,6 +1393,16 @@ function MapPage() {
           onToggleMute={toggleMute}
           onEnd={endNavigation}
         >
+          {reportAlert && (
+            <div className="nav-gem-alert nav-report-alert" role="alert">
+              <ReportBadge type={reportAlert.report.type} severity={reportAlert.report.severity} size={40} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="nav-gem-alert-kicker">Road report ahead · {formatDistance(reportAlert.aheadM)}</div>
+                <div className="nav-gem-alert-name">{reportTypeLabel(reportAlert.report.type)}</div>
+                <div className="nav-gem-alert-sub">Severity {reportAlert.report.severity}/5 · on your route</div>
+              </div>
+            </div>
+          )}
           {/* Gem alerts stack under the banner (and any "Then" strip). */}
           {gemAlert && (
             <div className={'nav-gem-alert' + (gemAlert.type === 'passed' ? ' passed' : '')} role="status" aria-live="polite">
@@ -1525,6 +1583,35 @@ function MapPage() {
                       </button>
                     ))}
                   </div>
+
+                  {/* Max detour for gems: asked once, then a setting (also in Profile). */}
+                  {!alertPrefs.detourAsked || choosingDetour ? (
+                    <div className="route-detour-ask">
+                      <div className="route-detour-q">How far out of your way would you go for a Hidden Gem?</div>
+                      <div className="chip-row">
+                        {DETOUR_CHOICES_MIN.map((min) => (
+                          <button
+                            key={min}
+                            className={'chip' + (alertPrefs.enabled && alertPrefs.maxDetourMin === min ? ' active' : '')}
+                            onClick={() => chooseDetour(min)}
+                          >
+                            {min} min
+                          </button>
+                        ))}
+                      </div>
+                      <div className="route-detour-note">
+                        We&apos;ll show gems within that detour on every route and alert you as you near them. Saved as a
+                        setting; change it here or in Profile.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="route-detour-line">
+                      {alertPrefs.enabled
+                        ? `Gems up to ${alertPrefs.maxDetourMin} min off your route`
+                        : 'Gem alerts are off · showing gems right by the route'}
+                      <button onClick={() => setChoosingDetour(true)}>Change</button>
+                    </div>
+                  )}
 
                   {alongRoute.length > 0 && (
                     <div className="route-along" aria-label="Along this route">

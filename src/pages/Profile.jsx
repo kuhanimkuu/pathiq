@@ -259,12 +259,16 @@ function Profile() {
         {alertPrefs.enabled && (
           <>
             <div className="settings-label">Longest detour</div>
+            <p className="list-row-sub" style={{ marginTop: 0 }}>
+              How far out of your way you&apos;d go for a gem. Routes show gems within this detour, and you&apos;re only
+              alerted to those.
+            </p>
             <div className="chip-row">
               {DETOUR_CHOICES_MIN.map((min) => (
                 <button
                   key={min}
                   className={'chip' + (alertPrefs.maxDetourMin === min ? ' active' : '')}
-                  onClick={() => updateAlertPrefs({ maxDetourMin: min })}
+                  onClick={() => updateAlertPrefs({ maxDetourMin: min, detourAsked: true })}
                 >
                   {min} min
                 </button>

@@ -6,7 +6,9 @@ const STORAGE_KEY = 'pathiq-gem-alerts'
 export const ALERT_CATEGORIES = ['attractions', 'hotels', 'food', 'scenic', 'fuel', 'facilities']
 export const DETOUR_CHOICES_MIN = [2, 5, 10, 15]
 
-const DEFAULTS = { enabled: true, maxDetourMin: 5, categories: ALERT_CATEGORIES }
+// detourAsked: the driver has chosen their max detour (asked the first time
+// they plan a route; until then 5 min is assumed and the panel says so).
+const DEFAULTS = { enabled: true, maxDetourMin: 5, categories: ALERT_CATEGORIES, detourAsked: false }
 
 export function loadAlertPrefs() {
   try {

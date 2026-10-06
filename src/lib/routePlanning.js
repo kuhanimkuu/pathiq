@@ -29,7 +29,7 @@ export async function planRoutes(origin, destination, stops = []) {
 export async function fetchRouteCorridor(path, { gemCorridorM = GEM_CORRIDOR_M } = {}) {
   const { data, error } = await supabase.rpc('gems_along_route', {
     route_wkt: toWkt(path),
-    corridor_m: Math.max(GEM_CORRIDOR_M, gemCorridorM),
+    corridor_m: gemCorridorM,
   })
   if (error) throw error
   return { gems: data ?? [] }

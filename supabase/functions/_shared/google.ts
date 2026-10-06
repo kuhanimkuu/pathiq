@@ -147,6 +147,9 @@ export async function computeRoutes(
       routingPreference: 'TRAFFIC_AWARE',
       computeAlternativeRoutes: stops.length === 0,
       polylineEncoding: 'ENCODED_POLYLINE',
+      // The default (OVERVIEW) line is simplified and can sit tens of metres
+      // off the real road on bends, so reports on the road would be missed.
+      polylineQuality: 'HIGH_QUALITY',
       ...(withTraffic ? { extraComputations: ['TRAFFIC_ON_POLYLINE'] } : {}),
     }),
   })

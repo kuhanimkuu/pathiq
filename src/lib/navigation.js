@@ -92,6 +92,12 @@ export function locate(model, pos, prev = { s: 0, seg: 0 }) {
   return best
 }
 
+// Where a place sits relative to the whole route (not just near the driver):
+// { s, offRouteM } — how far along it, and how far off it.
+export function snapToRoute(model, pos) {
+  return locate(model, pos, { s: Infinity, seg: 0 })
+}
+
 // Two manoeuvres closer together than this get a "Then …" preview, as in
 // Google Maps: you need to know the second one before you finish the first.
 const THEN_WITHIN_M = 400

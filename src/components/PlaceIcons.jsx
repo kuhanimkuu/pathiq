@@ -41,12 +41,19 @@ export function GemGlyph({ category, size = 14 }) {
 // can't be confused at a glance.
 
 // onRoute: along the planned route (glows). dimmed: a route is planned and
-// this isn't on it (fades back).
-export function GemPin({ category, onRoute = false, dimmed = false, saved = false, selected = false }) {
+// this isn't on it (fades back). google: one of Google's places, a tier below
+// PathIQ gems — smaller and outlined rather than filled.
+export function GemPin({ category, onRoute = false, dimmed = false, google = false, saved = false, selected = false }) {
   const { color, Icon } = gemStyle(category)
   return (
     <span
-      className={'pin-gem' + (onRoute ? ' on-route' : '') + (dimmed ? ' dimmed' : '') + (selected ? ' selected' : '')}
+      className={
+        'pin-gem' +
+        (onRoute ? ' on-route' : '') +
+        (dimmed ? ' dimmed' : '') +
+        (google ? ' google' : '') +
+        (selected ? ' selected' : '')
+      }
       style={{ '--c': color }}
     >
       <span className="pin-gem-head">

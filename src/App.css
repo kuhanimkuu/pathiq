@@ -1545,6 +1545,19 @@ html.light .map-alert {
   cursor: pointer;
 }
 
+/* A Google place's card: its rating (read-only) and attribution. */
+.google-place-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+.google-place-meta svg { color: var(--amber); vertical-align: -2px; }
+.google-attribution { font-size: 11px; color: var(--muted-foreground); }
+a.map-route-here-btn { text-decoration: none; }
+
 /* Gems and reports along the selected route, in order — one swipeable row. */
 .route-along {
   display: flex;
@@ -1853,6 +1866,15 @@ html.light .map-alert {
 @media (prefers-reduced-motion: reduce) {
   .pin-gem.on-route::before, .pin-report.on-route::before { animation: none; opacity: 0.3; }
 }
+/* Google's places: outlined and a little smaller, a tier below PathIQ gems. */
+.pin-gem.google .pin-gem-head {
+  background: var(--card);
+  color: var(--c);
+  border: 2px solid var(--c);
+  transform: rotate(-45deg) scale(0.82);
+}
+.pin-gem.google.on-route .pin-gem-head { box-shadow: 0 0 10px 2px var(--c), 0 2px 6px rgba(0, 0, 0, 0.45); }
+.pin-gem.google.on-route::before { opacity: 0.25; }
 .pin-gem.dimmed { transform: translate(-50%, -100%) scale(0.75); transform-origin: 50% 100%; opacity: 0.35; filter: saturate(0.3); }
 .pin-report.dimmed { transform: translate(-50%, -50%) scale(0.75); opacity: 0.35; filter: saturate(0.3); }
 .pin-gem, .pin-report { transition: transform 0.15s, opacity 0.2s, filter 0.2s; }

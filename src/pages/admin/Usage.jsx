@@ -37,7 +37,11 @@ function Usage() {
       .then((d) => {
         if (cancelled) return
         setData(d)
-        setPrices({ google: String(d.prices?.google ?? ''), google_traffic: String(d.prices?.google_traffic ?? '') })
+        setPrices({
+          google: String(d.prices?.google ?? ''),
+          google_traffic: String(d.prices?.google_traffic ?? ''),
+          places: String(d.prices?.places ?? ''),
+        })
       })
       .catch((err) => !cancelled && setError(err.message))
     return () => {
@@ -49,8 +53,8 @@ function Usage() {
     e.preventDefault()
     setError('')
     setSaved('')
-    const next = { google: Number(prices.google), google_traffic: Number(prices.google_traffic) }
-    if (![next.google, next.google_traffic].every((n) => Number.isFinite(n) && n >= 0 && n < 1000)) {
+    const next = { google: Number(prices.google), google_traffic: Number(prices.google_traffic), places: Number(prices.places) }
+    if (![next.google, next.google_traffic, next.places].every((n) => Number.isFinite(n) && n >= 0 && n < 1000)) {
       setError('Prices must be numbers between 0 and 1000.')
       return
     }
@@ -68,7 +72,9 @@ function Usage() {
 
   const m = data.this_month
   const billed = (m.google ?? 0) + (m.google_traffic ?? 0)
-  const cost = ((m.google ?? 0) * (data.prices?.google ?? 0) + (m.google_traffic ?? 0) * (data.prices?.google_traffic ?? 0)) / 1000
+  const routesCost = ((m.google ?? 0) * (data.prices?.google ?? 0) + (m.google_traffic ?? 0) * (data.prices?.google_traffic ?? 0)) / 1000
+  const placesCost = ((m.places ?? 0) * (data.prices?.places ?? 0)) / 1000
+  const cost = routesCost + placesCost
   const served = billed + (m.cache ?? 0)
   const cacheRate = served ? Math.round(((m.cache ?? 0) / served) * 100) : null
   const daily = data.daily.map((d) => ({ ...d, billed: d.google + d.google_traffic }))
@@ -85,7 +91,7 @@ function Usage() {
         </p>
       )}
 
-      <h2 className="admin-h2">Google Routes this month</h2>
+      <h2 className="admin-h2">Google Routes and Places this month</h2>
       <div className="admin-tiles">
         <div className="admin-tile tone-attention">
           <div className="admin-tile-label">Estimated Google cost</div>
@@ -96,6 +102,13 @@ function Usage() {
           <div className="admin-tile-label">Billed Google calls</div>
           <div className="admin-tile-value">{billed.toLocaleString()}</div>
           <div className="admin-tile-sub">{(m.google_traffic ?? 0).toLocaleString()} with live traffic (higher rate)</div>
+        </div>
+        <div className="admin-tile">
+          <div className="admin-tile-label">Google Places searches</div>
+          <div className="admin-tile-value">{(m.places ?? 0).toLocaleString()}</div>
+          <div className="admin-tile-sub">
+            {usd(placesCost)} · {((m.places_limited ?? 0) + (m.places_error ?? 0)).toLocaleString()} refused or failed
+          </div>
         </div>
         <div className="admin-tile">
           <div className="admin-tile-label">Served from cache</div>
@@ -163,7 +176,7 @@ function Usage() {
 
       <h2 className="admin-h2">Google prices used for the estimate</h2>
       <p className="admin-hint">
-        US dollars per 1,000 route calls. Check Google Cloud billing for your actual Routes API rates. Calls with live
+        US dollars per 1,000 calls. Check Google Cloud billing for your actual Routes and Places API rates. Calls with live
         traffic colours are billed higher; they can be turned off with the <code>ROUTES_TRAFFIC_ON_POLYLINE</code>{' '}
         secret.
       </p>
@@ -192,6 +205,19 @@ function Usage() {
                 min="0"
                 value={prices.google_traffic}
                 onChange={(e) => setPrices((p) => ({ ...p, google_traffic: e.target.value }))}
+              />
+            </span>
+          </label>
+          <label className="admin-field">
+            <span>Places search</span>
+            <span className="admin-kes-input">
+              $
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={prices.places}
+                onChange={(e) => setPrices((p) => ({ ...p, places: e.target.value }))}
               />
             </span>
           </label>

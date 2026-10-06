@@ -42,7 +42,7 @@ function describe(e) {
   if (verb === 'merge') return `merged gem ${d.merged} into ${name}`
   if (e.target_table === 'app_settings' && e.summary === 'routes_usd_per_1000' && d.value) {
     const v = d.value.to ?? {}
-    return `set Google route prices to ${v.google} / ${v.google_traffic} with traffic, per 1,000 calls`
+    return `set Google prices to ${v.google} / ${v.google_traffic} with traffic / ${v.places ?? '–'} for Places, per 1,000 calls`
   }
   if (verb === 'role') return `made ${name} ${arg === 'admin' ? 'an admin' : `a ${arg}`} (was ${d.role?.from})`
   if (e.target_table === 'task_rates' && d.amount_kes) {

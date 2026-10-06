@@ -409,3 +409,6 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 
 [functions.routes]
 verify_jwt = true
+
+[functions.places]
+verify_jwt = true

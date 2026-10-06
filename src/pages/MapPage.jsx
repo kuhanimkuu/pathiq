@@ -8,12 +8,13 @@ import { locationHelp } from '../lib/locationHelp'
 import { fetchNearbyRoadReports, reportTypeLabel, severityBand } from '../lib/roadReports'
 import { planRoutes, fetchRouteCorridor, formatDuration, routeLabel, MAX_STOPS } from '../lib/routePlanning'
 import { loadGoogleMaps, createPathiqMap, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
-import { buildNavModel, locate, progress, distanceM, spokenDistance, formatDistance, slicePath } from '../lib/navigation'
+import { buildNavModel, locate, snapToRoute, progress, distanceM, spokenDistance, formatDistance, slicePath } from '../lib/navigation'
 import { GemPin, ReportPin, GemBadge, ReportBadge, GemGlyph } from '../components/PlaceIcons'
 import { gemStyle } from '../lib/placeStyles'
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip'
 import { startTrip, endTrip, recordReroute, recordGemEvent, fetchRecentDestinations } from '../lib/trips'
-import { loadAlertPrefs, saveAlertPrefs, detourMinutes, corridorForDetour, DETOUR_CHOICES_MIN } from '../lib/alertPrefs'
+import { loadAlertPrefs, saveAlertPrefs, detourMinutes, corridorForDetour, DETOUR_CHOICES_MIN, ALERT_CATEGORIES } from '../lib/alertPrefs'
+import { fetchGooglePlacesNearby, fetchGooglePlacesAlongRoute, withoutDuplicates, isTopRated } from '../lib/googlePlaces'
 import { holdWakeLock, notifyIfHidden } from '../lib/driveAssist'
 import NavigationHud from '../components/NavigationHud'
 import DestinationSearch from '../components/DestinationSearch'
@@ -28,6 +29,8 @@ import ManeuverIcon from '../components/ManeuverIcon'
 
 const RADIUS_M = 5000
 const ON_ROUTE_M = 100 // a gem this close to the route is "on" it; further is a detour
+const GOOGLE_REFETCH_M = 2000 // fetch Google's nearby places again after moving this far
+const GEM_ROUTE_DEFAULT_M = 400 // gem corridor when gem alerts are off (as routePlanning.js)
 const NAV_ZOOM = 17
 const OFF_ROUTE_M = 50 // further than this from the line counts as off-route
 const OFF_ROUTE_FIXES = 3 // …for this many GPS fixes in a row, then reroute
@@ -244,6 +247,57 @@ function MapPage() {
     ]
   }, [gems, plan, corridor])
   const selectedRoute = plan?.options.find((o) => o.id === plan.selectedId) ?? null
+
+  // Google's places, a second tier under PathIQ gems (lib/googlePlaces):
+  // popular ones near the driver, and ones along the selected route.
+  const [googleNearby, setGoogleNearby] = useState([])
+  const [googleRoute, setGoogleRoute] = useState({ routeId: null, places: [] })
+  const googleCenterRef = useRef(null)
+  const googleRouteCache = useRef(new Map()) // polyline → places, this session only
+  useEffect(() => {
+    if (!session || !position) return
+    if (googleCenterRef.current && distanceM(googleCenterRef.current, position) < GOOGLE_REFETCH_M) return
+    googleCenterRef.current = position
+    fetchGooglePlacesNearby(position).then(setGoogleNearby)
+  }, [session, position])
+  useEffect(() => {
+    const polyline = selectedRoute?.encodedPolyline
+    if (!polyline) return
+    let cancelled = false
+    const corridorM = alertPrefs.enabled ? corridorForDetour(alertPrefs.maxDetourMin) : GEM_ROUTE_DEFAULT_M
+    const cached = googleRouteCache.current.get(polyline)
+    const load = cached
+      ? Promise.resolve(cached)
+      : fetchGooglePlacesAlongRoute(polyline, ALERT_CATEGORIES).then((rows) => {
+          googleRouteCache.current.set(polyline, rows)
+          return rows
+        })
+    load.then((rows) => {
+      if (cancelled) return
+      const model = buildNavModel(selectedRoute)
+      const places = rows
+        .map((p) => {
+          const at = snapToRoute(model, p)
+          return { ...p, distance_from_route_m: at.offRouteM, route_fraction: at.s / model.total }
+        })
+        .filter((p) => p.distance_from_route_m <= corridorM)
+      setGoogleRoute({ routeId: selectedRoute.id, places })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedRoute, alertPrefs])
+  // Google places that aren't PathIQ gems already, nearest-tier merged.
+  const googleRoutePlaces = useMemo(
+    () => (plan && googleRoute.routeId === selectedRoute?.id ? withoutDuplicates(googleRoute.places, allGems) : []),
+    [plan, googleRoute, selectedRoute, allGems],
+  )
+  const googleGems = useMemo(() => {
+    const onRoute = new Set(googleRoutePlaces.map((p) => p.id))
+    return [...googleRoutePlaces, ...withoutDuplicates(googleNearby, allGems).filter((p) => !onRoute.has(p.id))]
+  }, [googleRoutePlaces, googleNearby, allGems])
+  // Every gem on the map: PathIQ's first, then Google's.
+  const everyGem = useMemo(() => [...allGems, ...googleGems], [allGems, googleGems])
   // Reports on the selected route, likewise: the routes function only says
   // how far along the route each one is, so far-off ones are pinned there.
   const allIncidents = useMemo(() => {
@@ -262,7 +316,7 @@ function MapPage() {
       .filter(Boolean)
     return [...incidents, ...placed]
   }, [incidents, selectedRoute])
-  const selectedGem = selected?.type === 'gem' ? allGems.find((g) => g.id === selected.id) : null
+  const selectedGem = selected?.type === 'gem' ? everyGem.find((g) => g.id === selected.id) : null
   const selectedIncident = selected?.type === 'incident' ? allIncidents.find((i) => i.id === selected.id) : null
   const navActive = nav != null && nav.status !== 'arrived'
   // Only a real GPS fix, never the central-Nairobi stand-in used when location is off.
@@ -643,8 +697,13 @@ function MapPage() {
   // one "just passed" alert with save-for-later. Once per gem per trip —
   // locally, and by trip_gem_events' unique key server-side.
   function checkGemAlerts(current, s) {
-    if (!alertPrefs.enabled || corridor.routeId !== current.routeId) return
-    for (const gem of corridor.gems) {
+    if (!alertPrefs.enabled) return
+    // PathIQ gems first; Google's places only when top-rated (lib/googlePlaces).
+    const candidates = [
+      ...(corridor.routeId === current.routeId ? corridor.gems : []),
+      ...(googleRoute.routeId === current.routeId ? googleRoutePlaces.filter(isTopRated) : []),
+    ]
+    for (const gem of candidates) {
       if (!alertPrefs.categories.includes(gem.category)) continue
       const detourMin = detourMinutes(gem.distance_from_route_m)
       if (detourMin > alertPrefs.maxDetourMin) continue
@@ -657,11 +716,17 @@ function MapPage() {
       // Joined the route already past it (e.g. after a reroute): "just passed" would be noise.
       if (type === 'passed' && !alertedRef.current.has(`${gem.id}:approaching`)) continue
       setGemAlert({ type, gem, aheadM: ahead, detourMin, key: `${gem.id}:${type}` })
-      if (current.tripId) recordGemEvent(current.tripId, gem.id, type).catch(() => {})
+      const google = gem.source === 'google'
+      // Trip events are for PathIQ gems (they reference the gems table).
+      if (current.tripId && !google) recordGemEvent(current.tripId, gem.id, type).catch(() => {})
       const message =
         type === 'approaching'
-          ? `Hidden gem ahead: ${gem.name}, in ${spokenDistance(ahead)}. About ${detourMin} minute detour.`
-          : `You just passed ${gem.name}. You can save it for later.`
+          ? google
+            ? `Top rated on Google ahead: ${gem.name}, ${gem.rating} stars, in ${spokenDistance(ahead)}. About ${detourMin} minute detour.`
+            : `Hidden gem ahead: ${gem.name}, in ${spokenDistance(ahead)}. About ${detourMin} minute detour.`
+          : google
+            ? `You just passed ${gem.name}.`
+            : `You just passed ${gem.name}. You can save it for later.`
       speak(message)
       if (profile?.notifications_on !== false) {
         notifyIfHidden(type === 'approaching' ? 'Hidden gem ahead' : 'You just passed a gem', message)
@@ -963,24 +1028,31 @@ function MapPage() {
 
   const visibleGems = useMemo(
     () =>
-      layers.gems ? allGems.filter((g) => activeCategories.size === 0 || activeCategories.has(g.category)) : [],
-    [allGems, activeCategories, layers.gems],
+      layers.gems ? everyGem.filter((g) => activeCategories.size === 0 || activeCategories.has(g.category)) : [],
+    [everyGem, activeCategories, layers.gems],
   )
   const visibleIncidents = useMemo(() => (layers.reports ? allIncidents : []), [allIncidents, layers.reports])
 
-  const routeGemIds = useMemo(() => new Set((plan ? corridor.gems : []).map((g) => g.id)), [plan, corridor])
+  const routeGemIds = useMemo(
+    () => new Set((plan ? [...corridor.gems, ...googleRoutePlaces] : []).map((g) => g.id)),
+    [plan, corridor, googleRoutePlaces],
+  )
   // Reports that still matter on the selected route, as judged by the routes
   // edge function (old ones fade out — see isStillRelevant in scoring.ts).
   const routeReportIds = useMemo(() => new Set((selectedRoute?.hazards ?? []).map((h) => h.id)), [selectedRoute])
   // With a route planned the map focuses on it: what's along it (or a short
   // detour off it) glows, everything else fades back.
   const routeFocus = plan != null
-  // Everything along the selected route, in the order you'll reach it.
+  // Everything along the selected route, in the order you'll reach it:
+  // PathIQ gems and reports first, then Google's places.
   const alongRoute = useMemo(() => {
     if (!plan) return []
-    const gemItems = corridor.gems
-      .filter((g) => layers.gems && (activeCategories.size === 0 || activeCategories.has(g.category)))
+    const shown = (g) => layers.gems && (activeCategories.size === 0 || activeCategories.has(g.category))
+    const gemItems = corridor.gems.filter(shown).map((g) => ({ kind: 'gem', id: g.id, at: g.route_fraction, item: g }))
+    const googleItems = googleRoutePlaces
+      .filter(shown)
       .map((g) => ({ kind: 'gem', id: g.id, at: g.route_fraction, item: g }))
+      .sort((a, b) => a.at - b.at)
     const reportItems = layers.reports
       ? (selectedRoute?.hazards ?? []).map((h) => ({
           kind: 'incident',
@@ -989,8 +1061,8 @@ function MapPage() {
           item: allIncidents.find((i) => i.id === h.id) ?? h,
         }))
       : []
-    return [...gemItems, ...reportItems].sort((a, b) => a.at - b.at)
-  }, [plan, corridor, selectedRoute, allIncidents, layers, activeCategories])
+    return [...[...gemItems, ...reportItems].sort((a, b) => a.at - b.at), ...googleItems]
+  }, [plan, corridor, googleRoutePlaces, selectedRoute, allIncidents, layers, activeCategories])
 
   // The driver's dot: one marker, moved as GPS updates arrive. Only for a
   // real fix; with location off there's no "you are here".
@@ -1039,17 +1111,21 @@ function MapPage() {
     for (const gem of visibleGems) {
       const onRoute = routeGemIds.has(gem.id)
       const isSelected = selected?.type === 'gem' && selected.id === gem.id
+      const google = gem.source === 'google'
       const el = host(
-        gem.name,
+        google ? `${gem.name} (from Google)` : gem.name,
         <GemPin
           category={gem.category}
           onRoute={onRoute}
           dimmed={routeFocus && !onRoute && !isSelected}
+          google={google}
           saved={savedIds.has(gem.id)}
           selected={isSelected}
         />,
       )
-      add({ lat: gem.lat, lng: gem.lng }, el, isSelected ? 40 : onRoute ? 20 : 10, () =>
+      // PathIQ gems always sit above Google's places.
+      const zIndex = isSelected ? 40 : (onRoute ? 20 : 10) - (google ? 5 : 0)
+      add({ lat: gem.lat, lng: gem.lng }, el, zIndex, () =>
         setSelected({ type: 'gem', id: gem.id }),
       )
     }
@@ -1409,12 +1485,18 @@ function MapPage() {
               <GemBadge category={gemAlert.gem.category} size={40} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="nav-gem-alert-kicker">
-                  {gemAlert.type === 'approaching' ? `Hidden gem ahead · ${formatDistance(gemAlert.aheadM)}` : 'You just passed'}
+                  {gemAlert.type === 'approaching'
+                    ? `${gemAlert.gem.source === 'google' ? 'Top rated on Google' : 'Hidden gem ahead'} · ${formatDistance(gemAlert.aheadM)}`
+                    : 'You just passed'}
                 </div>
                 <div className="nav-gem-alert-name">{gemAlert.gem.name}</div>
-                <div className="nav-gem-alert-sub">~{gemAlert.detourMin} min detour (estimate)</div>
+                <div className="nav-gem-alert-sub">
+                  {gemAlert.gem.source === 'google' && `★ ${gemAlert.gem.rating} on Google · `}~{gemAlert.detourMin} min detour
+                  (estimate)
+                </div>
               </div>
               {gemAlert.type === 'passed' &&
+                gemAlert.gem.source !== 'google' &&
                 (savedIds.has(gemAlert.gem.id) ? (
                   <span className="nav-gem-alert-saved">Saved</span>
                 ) : (
@@ -1542,7 +1624,8 @@ function MapPage() {
                         {plan.stops.length > 0
                           ? `Via ${plan.stops.length} stop${plan.stops.length === 1 ? '' : 's'} · `
                           : `${plan.options.length} route${plan.options.length === 1 ? '' : 's'} · `}
-                        {corridor.gems.length} gem{corridor.gems.length === 1 ? '' : 's'} along the{' '}
+                        {corridor.gems.length} gem{corridor.gems.length === 1 ? '' : 's'}
+                        {googleRoutePlaces.length > 0 && ` + ${googleRoutePlaces.length} from Google`} along the{' '}
                         {plan.options.length === 1 ? 'route' : 'selected one'}
                       </div>
                     </div>
@@ -1622,6 +1705,7 @@ function MapPage() {
                             <span className="route-along-text">
                               <span className="route-along-name">{item.name}</span>
                               <span className="route-along-sub">
+                                {item.source === 'google' && `Google${item.rating != null ? ` ★${item.rating}` : ''} · `}
                                 {item.distance_from_route_m <= ON_ROUTE_M
                                   ? 'On your route'
                                   : `~${detourMinutes(item.distance_from_route_m)} min detour`}
@@ -1817,6 +1901,18 @@ function MapPage() {
                         ? ' · on your route'
                         : ` · ~${detourMinutes(selectedGem.distance_from_route_m)} min detour`)}
                   </div>
+                  {selectedGem.source === 'google' ? (
+                    // Google's place: its rating, read-only, with attribution.
+                    <div className="google-place-meta">
+                      {selectedGem.rating != null && (
+                        <span>
+                          <Star size={13} fill="currentColor" /> {selectedGem.rating} · {selectedGem.ratingCount.toLocaleString()}{' '}
+                          reviews
+                        </span>
+                      )}
+                      <span className="google-attribution">From Google Maps</span>
+                    </div>
+                  ) : (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
                     {[1, 2, 3, 4, 5].map((n) => (
                       <button
@@ -1833,6 +1929,7 @@ function MapPage() {
                       {selectedGem.confirmations_count} confirmed
                     </span>
                   </div>
+                  )}
                   {!nav && (
                     <div className="map-pin-actions">
                       <button
@@ -1856,9 +1953,15 @@ function MapPage() {
                       >
                         <Share2 size={13} /> Share
                       </button>
+                      {selectedGem.mapsUri && (
+                        <a className="map-route-here-btn" href={selectedGem.mapsUri} target="_blank" rel="noreferrer">
+                          Open in Google Maps
+                        </a>
+                      )}
                     </div>
                   )}
                 </div>
+                {selectedGem.source !== 'google' && (
                 <button
                   className={'save-btn' + (savedIds.has(selectedGem.id) ? ' saved' : '')}
                   disabled={busy}
@@ -1867,6 +1970,7 @@ function MapPage() {
                 >
                   <Bookmark size={18} fill={savedIds.has(selectedGem.id) ? 'currentColor' : 'none'} />
                 </button>
+                )}
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>

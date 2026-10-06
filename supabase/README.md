@@ -44,8 +44,10 @@ To deploy to a hosted project:
 supabase link --project-ref <ref>
 supabase db push --include-seed
 supabase secrets set GOOGLE_MAPS_API_KEY=<server key>
-supabase functions deploy routes
+supabase functions deploy routes places
 ```
+
+The `places` function needs **Places API (New)** enabled on the same Google Cloud project as the server key.
 
 A few things that only bite on a hosted project, not locally:
 
@@ -158,12 +160,20 @@ It returns the route options, best first:
 How it works:
 1. Validates the request. Both points must be inside Kenya, to protect the Google quota.
 2. Gets driving alternatives with live traffic (and, unless turned off, traffic along each route) from Google's Routes API. The response is cached for 10 minutes by rounded origin and destination. Entries cached before a newer field existed (`steps`, `traffic`) are treated as a miss.
-3. For each route, fetches verified road reports within 50 m with `road_reports_along_route`.
+3. For each route, fetches verified road reports within 100 m of the route line (Google's detailed `HIGH_QUALITY` polyline) with `road_reports_along_route`.
 4. Scores each route (`_shared/scoring.ts`), then labels the winners: **recommended** (best overall), **fastest** (least time) and **best_road** (best road quality). One route can hold several labels.
 
 Scoring: each report adds a penalty from its type, severity, confidence and age. The penalty halves every so many days, and the half-life depends on the type (flooding 2 days, incidents 6 hours, potholes 60 days). Scores then follow `100 * exp(-penalty / 40)`. The overall score is 35% road quality, 25% time, 20% traffic and 20% incidents. All the numbers are constants at the top of `scoring.ts`, so they are easy to tune.
 
 The gem suggestion engine runs in the app rather than here. It uses `gems_along_route` once at trip start, then works from the phone's position.
+
+## Google's places: `places` edge function
+
+A second tier of gems under PathIQ's own (`functions/places`, `_shared/places.ts`). `{ mode: 'nearby', center }` returns popular places of PathIQ's categories within 5 km (Nearby Search); `{ mode: 'route', encodedPolyline, categories }` returns places along a route, one Text Search per category. Google types are mapped to PathIQ categories, so anything else is dropped.
+
+- **PathIQ gems come first.** The app draws Google's places smaller and outlined, lists them after PathIQ gems, drops any within 80 m of a PathIQ gem, and only announces top-rated ones (4.5+, 100+ reviews) while driving. Business-uploaded gems, when they exist, belong in PathIQ's tier.
+- **Not cached.** Google's terms don't allow storing Places content, so the app keeps results for the session only and shows "From Google Maps" on them.
+- **Billed per Google call** and rate-limited: 20 requests per user and 40 per IP per 10 minutes, and `PLACES_GLOBAL_LIMIT_PER_HOUR` (default 600) Google calls an hour overall. Counted in `route_usage_daily` as `places*` outcomes for the admin Usage panel. When limited, the app quietly shows PathIQ gems alone.
 
 ## Tests
 

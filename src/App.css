@@ -1218,12 +1218,23 @@ html.light .map-alert {
   cursor: pointer;
 }
 
-/* Overview / Re-centre, just above the nav footer. */
-.nav-camera-btn {
+/* The nav footer plus anything stacked on it (Overview / Re-centre). */
+.nav-bottom {
   position: absolute;
   left: 16px;
-  bottom: 96px;
+  right: 16px;
+  bottom: 16px;
   z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none; /* the gap beside the button still drags the map */
+}
+.nav-bottom > * { pointer-events: auto; }
+.nav-bottom .nav-footer { position: static; align-self: stretch; }
+
+.nav-camera-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1492,6 +1503,7 @@ html.light .map-alert {
   font-size: 18px;
   font-weight: 700;
   min-width: 64px;
+  white-space: nowrap;
 }
 .route-option-row.selected .route-option-time { color: var(--primary); }
 .route-option-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -1500,6 +1512,29 @@ html.light .map-alert {
 .route-option-scores .has-reports { color: var(--amber); font-weight: 600; }
 
 .map-route-panel .route-alerts { margin-top: 10px; }
+
+/* Phones: a compact panel by default, so the route stays visible above it. */
+.route-panel-more { display: none; }
+@media (max-width: 768px) {
+  .route-panel-more {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    padding: 6px;
+    border: none;
+    background: none;
+    color: var(--primary);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .map-route-panel.compact .route-option-row:not(.selected),
+  .map-route-panel.compact .route-alerts,
+  .map-route-panel.compact .route-legend,
+  .map-route-panel.compact .route-preview-note { display: none; }
+  .map-route-panel.compact .route-panel-head { margin-bottom: 8px; }
+}
 .route-panel-start { width: 100%; justify-content: center; margin-top: 12px; padding: 10px 16px; font-size: 14px; }
 
 /* ── History tab ── */

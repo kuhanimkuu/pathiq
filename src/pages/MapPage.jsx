@@ -203,6 +203,9 @@ function MapPage() {
   // While navigating the camera follows the driver, until they drag the map
   // to look along the route; "Re-centre" turns it back on.
   const [follow, setFollow] = useState(true)
+  // On phones the route panel starts compact (chosen route + Start) so the
+  // route itself stays visible; "More" shows the alternatives and details.
+  const [routeDetails, setRouteDetails] = useState(false)
   const alertedRef = useRef(new Set())
   const [navError, setNavError] = useState('')
   const [muted, setMuted] = useState(readMuted)
@@ -724,7 +727,10 @@ function MapPage() {
         const syncZoomClass = () => div.classList.toggle('show-maneuvers', map.getZoom() >= MANEUVER_MIN_ZOOM)
         map.addListener('zoom_changed', syncZoomClass)
         syncZoomClass()
-        map.addListener('dragstart', () => setFollow(false))
+        map.addListener('dragstart', () => {
+          setFollow(false)
+          setRouteDetails(false)
+        })
         map.addListener('click', (e) => {
           const l = latest.current
           if (l.nav || l.preview) return // no re-planning mid-drive
@@ -1169,7 +1175,10 @@ function MapPage() {
     setFollow(false)
     const bounds = new api.LatLngBounds()
     path.forEach((p) => bounds.extend(p))
-    map.fitBounds(bounds, { top: 170, bottom: 120, left: 40, right: 40 })
+    // Clear of the banner above and the footer stack below (taller on phones).
+    const top = (document.querySelector('.nav-top')?.offsetHeight ?? 110) + 32
+    const bottom = (document.querySelector('.nav-bottom')?.offsetHeight ?? 140) + 32
+    map.fitBounds(bounds, { top, bottom, left: 40, right: 40 })
   }
   function recentre() {
     setFollow(true)
@@ -1266,13 +1275,14 @@ function MapPage() {
       {mapError && <p className="map-status">{mapError}</p>}
 
       {nav ? (
-        <>
-        {nav.status !== 'arrived' && (
-          <button className="nav-camera-btn" onClick={follow ? showRouteOverview : recentre}>
-            {follow ? <Eye size={15} /> : <Navigation2 size={15} />} {follow ? 'Overview' : 'Re-centre'}
-          </button>
-        )}
         <NavigationHud
+          aside={
+            nav.status !== 'arrived' && (
+              <button className="nav-camera-btn" onClick={follow ? showRouteOverview : recentre}>
+                {follow ? <Eye size={15} /> : <Navigation2 size={15} />} {follow ? 'Overview' : 'Re-centre'}
+              </button>
+            )
+          }
           step={nav.step}
           steps={nav.model.steps}
           status={nav.status}
@@ -1304,7 +1314,6 @@ function MapPage() {
             </div>
           )}
         </NavigationHud>
-        </>
       ) : preview != null && selectedRoute?.steps?.length > 0 ? (
         <RoutePreviewHud
           steps={selectedRoute.steps}
@@ -1410,7 +1419,7 @@ function MapPage() {
             // the road problems on it — then the selected route's problems and
             // Start. This is the whole route-comparison feature; there's no
             // separate page for it.
-            <div className="map-route-panel" ref={routePanelRef}>
+            <div className={'map-route-panel' + (routeDetails ? '' : ' compact')} ref={routePanelRef}>
               {routing && <p className="list-row-sub" style={{ margin: 0 }}>Planning route…</p>}
               {!routing && routeError && <p className="auth-error" style={{ margin: 0 }}>{routeError}</p>}
               {!routing && selectedRoute && (
@@ -1463,6 +1472,15 @@ function MapPage() {
                       </button>
                     ))}
                   </div>
+
+                  {/* Phones only (CSS): expand / collapse the panel. */}
+                  <button className="route-panel-more" onClick={() => setRouteDetails((v) => !v)} aria-expanded={routeDetails}>
+                    {routeDetails
+                      ? 'Show less'
+                      : plan.options.length > 1
+                        ? `${plan.options.length - 1} more route${plan.options.length > 2 ? 's' : ''} and details`
+                        : 'Route details'}
+                  </button>
 
                   {selectedRoute.alerts?.length > 0 && (
                     <div className="route-alerts">

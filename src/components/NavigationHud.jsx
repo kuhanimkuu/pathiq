@@ -9,7 +9,7 @@ import DirectionsList from './DirectionsList'
 // manoeuvre with its distance and Google's extra detail, a "Then …" preview
 // when two turns come close together, and the full written directions.
 // `nextStop` is the next stop on the way ({ name, left }: stops still to go).
-function NavigationHud({ step, steps = [], destinationName, nextStop, muted, onToggleMute, onEnd, status, children }) {
+function NavigationHud({ step, steps = [], destinationName, nextStop, muted, onToggleMute, onEnd, status, aside, children }) {
   const [showSteps, setShowSteps] = useState(false)
   const arrivalTime = step
     ? new Date(step.computedAt + step.remainingS * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -59,6 +59,9 @@ function NavigationHud({ step, steps = [], destinationName, nextStop, muted, onT
         />
       )}
 
+      {/* `aside` (Overview / Re-centre) sits on top of the footer, whatever its height. */}
+      <div className="nav-bottom">
+      {aside}
       <div className="nav-footer">
         <div style={{ minWidth: 0 }}>
           {step && status !== 'arrived' ? (
@@ -92,6 +95,7 @@ function NavigationHud({ step, steps = [], destinationName, nextStop, muted, onT
         <button className="nav-end-btn" onClick={onEnd}>
           <X size={15} /> {status === 'arrived' ? 'Done' : 'End'}
         </button>
+      </div>
       </div>
     </>
   )

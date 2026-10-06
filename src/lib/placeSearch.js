@@ -17,7 +17,8 @@ export async function searchPlaces(input, near, sessionToken) {
   const { suggestions } = await api.AutocompleteSuggestion.fetchAutocompleteSuggestions({
     input,
     sessionToken,
-    includedRegionCodes: ['ke'], // routing only covers Kenya (see the routes edge function)
+    // Anywhere in the world, preferring places near `near` (the map area on
+    // screen), as Google Maps does.
     locationBias: near ? { center: near, radius: BIAS_RADIUS_M } : undefined,
   })
   return suggestions

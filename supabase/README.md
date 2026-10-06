@@ -158,7 +158,7 @@ It returns the route options, best first:
 - `steps` are the turn-by-turn directions. `instruction` is the manoeuvre, and `detail` is Google's extra text, shown on screen but not spoken.
 
 How it works:
-1. Validates the request. Both points must be inside Kenya, to protect the Google quota.
+1. Validates the request: real coordinates anywhere in the world (PathIQ isn't limited to Kenya; Google's coverage decides what comes back).
 2. Gets driving alternatives with live traffic (and, unless turned off, traffic along each route) from Google's Routes API. The response is cached for 10 minutes by rounded origin and destination. Entries cached before a newer field existed (`steps`, `traffic`) are treated as a miss.
 3. For each route, fetches verified road reports within 100 m of the route line (Google's detailed `HIGH_QUALITY` polyline) with `road_reports_along_route`.
 4. Scores each route (`_shared/scoring.ts`), then labels the winners: **recommended** (best overall), **fastest** (least time) and **best_road** (best road quality). One route can hold several labels.

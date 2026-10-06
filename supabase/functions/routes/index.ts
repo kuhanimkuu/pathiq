@@ -41,8 +41,9 @@ const GLOBAL_GOOGLE_CALLS_PER_HOUR = Number(Deno.env.get('ROUTES_GLOBAL_LIMIT_PE
 // higher "Advanced" rate; set ROUTES_TRAFFIC_ON_POLYLINE=false to turn it off.
 const TRAFFIC_ON_POLYLINE = Deno.env.get('ROUTES_TRAFFIC_ON_POLYLINE') !== 'false'
 
-// Kenya, with some margin. Keeps stray requests from spending Google quota.
-const BOUNDS = { minLat: -5, maxLat: 5.5, minLng: 33.5, maxLng: 42 }
+// Any real point on Earth. PathIQ works worldwide; Google's own coverage
+// decides what comes back.
+const isLatLng = (lat: number, lng: number) => lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
 
 interface ReportRow {
   id: string
@@ -58,8 +59,7 @@ interface ReportRow {
 function parsePoint(value: unknown): LatLng | null {
   const p = value as Partial<LatLng> | null
   if (!p || typeof p.lat !== 'number' || typeof p.lng !== 'number') return null
-  if (p.lat < BOUNDS.minLat || p.lat > BOUNDS.maxLat) return null
-  if (p.lng < BOUNDS.minLng || p.lng > BOUNDS.maxLng) return null
+  if (!isLatLng(p.lat, p.lng)) return null
   return { lat: p.lat, lng: p.lng }
 }
 
@@ -103,14 +103,14 @@ Deno.serve(async (req) => {
   const origin = parsePoint(body.origin)
   const destination = parsePoint(body.destination)
   if (!origin || !destination) {
-    return json({ error: 'origin and destination need numeric lat and lng inside Kenya' }, 400)
+    return json({ error: 'origin and destination need valid numeric lat and lng' }, 400)
   }
   const rawStops = body.stops ?? []
   if (!Array.isArray(rawStops) || rawStops.length > MAX_STOPS) {
     return json({ error: `stops must be a list of at most ${MAX_STOPS} points` }, 400)
   }
   const stops = rawStops.map(parsePoint)
-  if (stops.some((p) => !p)) return json({ error: 'every stop needs numeric lat and lng inside Kenya' }, 400)
+  if (stops.some((p) => !p)) return json({ error: 'every stop needs valid numeric lat and lng' }, 400)
   const stopPoints = stops as LatLng[]
 
   // The cache and rate-limit tables are server-only, so they use the service role.

@@ -141,7 +141,7 @@ function Profile() {
         <div className="profile-avatar">{user.name[0]}</div>
         <div>
           <div className="profile-name">{user.name}</div>
-          <div className="profile-sub">IQ Score {user.iqScore ?? '–'} · Nairobi</div>
+          <div className="profile-sub">IQ Score {user.iqScore ?? '–'}</div>
           <span className={`role-badge role-${isGuest ? 'guest' : role}`}>
             {isGuest ? 'Guest' : role}
           </span>

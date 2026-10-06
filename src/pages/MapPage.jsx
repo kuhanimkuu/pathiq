@@ -1579,7 +1579,7 @@ function MapPage() {
               recent={quickPicks.recent}
               saved={quickPicks.saved}
               pinned={pinned}
-              near={livePos ?? position}
+              near={view?.center ?? livePos ?? position}
               placeholder={PICK_PLACEHOLDER[picking.slot]}
               autoFocus
               gemsAsPlaces
@@ -1611,7 +1611,7 @@ function MapPage() {
               recent={quickPicks.recent}
               saved={quickPicks.saved}
               pinned={pinned}
-              near={livePos ?? position}
+              near={view?.center ?? livePos ?? position}
               placeholder="Where to? Search or tap the map"
               onPickGem={handlePickGem}
               onPickPlace={(place) => planTo({ lat: place.lat, lng: place.lng }, place.name)}

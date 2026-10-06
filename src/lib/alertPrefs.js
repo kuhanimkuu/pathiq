@@ -28,7 +28,7 @@ export function saveAlertPrefs(prefs) {
 }
 
 // Rough extra driving time to visit a gem off the route and come back: there
-// and back at typical Nairobi urban speed (~20 km/h), rounded up. An estimate,
+// and back at typical town driving speed (~20 km/h), rounded up. An estimate,
 // and labelled as one in the UI.
 const URBAN_M_PER_MIN = 20_000 / 60
 

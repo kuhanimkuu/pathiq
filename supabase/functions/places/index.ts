@@ -18,14 +18,15 @@ const IP_LIMIT = { max: 40, window: '10 minutes' }
 // Counted per Google call (a route search makes one per category).
 const GLOBAL_GOOGLE_CALLS_PER_HOUR = Number(Deno.env.get('PLACES_GLOBAL_LIMIT_PER_HOUR') ?? 600)
 
-// Kenya, with some margin (as in the routes function).
-const BOUNDS = { minLat: -5, maxLat: 5.5, minLng: 33.5, maxLng: 42 }
+// Any real point on Earth. PathIQ works worldwide; Google's own coverage
+// decides what comes back.
+const isLatLng = (lat: number, lng: number) => lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
 const CATEGORIES = Object.keys(ROUTE_QUERY) as GemCategory[]
 
 function parsePoint(value: unknown) {
   const p = value as { lat?: unknown; lng?: unknown } | null
   if (!p || typeof p.lat !== 'number' || typeof p.lng !== 'number') return null
-  if (p.lat < BOUNDS.minLat || p.lat > BOUNDS.maxLat || p.lng < BOUNDS.minLng || p.lng > BOUNDS.maxLng) return null
+  if (!isLatLng(p.lat, p.lng)) return null
   return { lat: p.lat, lng: p.lng }
 }
 
@@ -61,7 +62,7 @@ Deno.serve(async (req) => {
   let googleCalls = 1
   if (body.mode === 'nearby') {
     const center = parsePoint(body.center)
-    if (!center) return json({ error: 'center needs numeric lat and lng inside Kenya' }, 400)
+    if (!center) return json({ error: 'center needs valid numeric lat and lng' }, 400)
     run = () => searchNearby(googleKey, center, NEARBY_RADIUS_M)
   } else if (body.mode === 'route') {
     const polyline = body.encodedPolyline

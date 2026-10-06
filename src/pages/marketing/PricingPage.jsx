@@ -8,7 +8,7 @@ export default function PricingPage() {
       <div className="pill pill-grey center">Pricing</div>
       <h2 className="center">Free for drivers, for now.</h2>
       <p className="section-sub center">
-        PathIQ Navigators is free while we build out road intelligence and Hidden Gems across Nairobi. A paid tier
+        PathIQ Navigators is free while we build out road intelligence and Hidden Gems, starting from Nairobi. A paid tier
         with advanced route intelligence is planned after the MVP — pricing isn&apos;t finalised yet.
       </p>
     </section>

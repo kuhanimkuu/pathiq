@@ -125,7 +125,7 @@ export default function HeroMap({ onData }) {
       {data && (
         <Link to="/app/map" className="hero-route-card hero-live-card">
           <div className="hero-route-card-label">
-            <span className="dot dot-green" /> Live in Nairobi
+            <span className="dot dot-green" /> Live from Nairobi
           </div>
           <div className="hero-live-row">
             {sampleGem && <GemBadge category={sampleGem.category} size={22} />}

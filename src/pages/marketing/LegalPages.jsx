@@ -29,7 +29,7 @@ export function PrivacyPage() {
   return (
     <LegalShell title="Privacy Policy">
       <p>
-        PathIQ Navigators (&ldquo;PathIQ&rdquo;, &ldquo;we&rdquo;) helps drivers in Kenya choose better routes and
+        PathIQ Navigators (&ldquo;PathIQ&rdquo;, &ldquo;we&rdquo;) helps drivers choose better routes and
         find Hidden Gems. This page explains what we collect, why, and what you can do about it.
       </p>
 

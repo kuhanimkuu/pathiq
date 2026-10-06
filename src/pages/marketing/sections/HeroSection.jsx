@@ -4,7 +4,7 @@ import { Plus } from 'lucide-react'
 import HeroMap from './HeroMap'
 
 export default function HeroSection() {
-  // Live road reports around Nairobi, from the hero map's data.
+  // Live road reports around Nairobi (the hero map's area), from its data.
   const [alertCount, setAlertCount] = useState(0)
   return (
     <section className="hero">
@@ -16,10 +16,10 @@ export default function HeroSection() {
       <div className="hero-inner">
         <div className="hero-copy">
           <div className="pill pill-green">
-            <span className="dot dot-green" /> Now live in Nairobi &middot; Expanding nationally
+            <span className="dot dot-green" /> Works anywhere &middot; Built in Nairobi
           </div>
           <h1>
-            Navigate Kenya with the road intelligence <span className="accent">Google Maps</span> doesn&apos;t have.
+            Navigate with the road intelligence <span className="accent">Google Maps</span> doesn&apos;t have.
           </h1>
           <p className="hero-sub">
             PathIQ Navigators combines real road conditions, traffic intelligence and community-verified places to

@@ -12,7 +12,7 @@ const conditions = [
   { icon: CircleDashed, num: '12,482', label: 'Potholes', desc: 'Reported and verified by Scouts and sensors', color: 'orange' },
   { icon: Waves, num: '284', label: 'Flooding', desc: 'Real-time flood zone detection and alerts', color: 'blue' },
   { icon: Construction, num: '1,841', label: 'Construction', desc: 'Active construction sites and detours', color: 'orange' },
-  { icon: Satellite, num: '128K+', label: 'Road Surface', desc: 'Surface quality reports across Kenya', color: 'purple' },
+  { icon: Satellite, num: '128K+', label: 'Road Surface', desc: 'Surface quality reports from drivers and Scouts', color: 'purple' },
   { icon: Car, num: 'Live', label: 'Traffic', desc: 'Real-time congestion and speed data', color: 'green' },
   { icon: TriangleAlert, num: '8,924', label: 'Incidents', desc: 'Accidents, breakdowns and road closures', color: 'red' },
 ]
@@ -26,7 +26,7 @@ export default function RoadConditionsSection() {
           <h2>Real roads. Real conditions.</h2>
           <p>
             Our platform aggregates data from Scouts on the ground, connected vehicles, satellite imagery and
-            community reports to build Kenya&apos;s most complete road intelligence layer.
+            community reports to build the most complete road intelligence layer, one city at a time.
           </p>
           <div className="insight-card">
             <div className="insight-label">Example insight</div>

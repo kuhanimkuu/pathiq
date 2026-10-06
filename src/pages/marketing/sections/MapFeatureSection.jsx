@@ -10,8 +10,8 @@ export default function MapFeatureSection() {
       <div className="pill pill-blue center">Live Map</div>
       <h2 className="center">See the road ahead, not just the route.</h2>
       <p className="section-sub center">
-        One map for road conditions, route options and Hidden Gems &mdash; built for Kenyan roads, not adapted from
-        somewhere else.
+        One map for road conditions, route options and Hidden Gems &mdash; built for real roads as drivers find
+        them, not as the map assumes they are.
       </p>
     </section>
   )

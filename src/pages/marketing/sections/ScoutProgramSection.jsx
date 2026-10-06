@@ -17,7 +17,8 @@ export default function ScoutProgramSection() {
           <h2>Built by people on the ground.</h2>
           <p>
             PathIQ Scouts are paid contributors who verify roads, discover local places and keep our data
-            accurate and current. Scouts earn via M-Pesa for every approved task.
+            accurate and current. Scouts in Kenya earn via M-Pesa for every approved task, with more countries and
+            payment methods to follow.
           </p>
 
           <div className="earnings-card">

@@ -1,9 +1,9 @@
 import { Bus, Landmark, Smartphone } from 'lucide-react'
 
 const roadmap = [
-  { icon: Bus, title: 'Matatu SACCO Intelligence', desc: 'Route optimization, occupancy tracking and passenger safety scoring for Nairobi matatu operators and SACCOs.', badge: 'Coming 2027' },
+  { icon: Bus, title: 'Minibus & Matatu Intelligence', desc: "Route optimization, occupancy tracking and passenger safety scoring for minibus operators, starting with Nairobi's matatu SACCOs.", badge: 'Coming 2027' },
   { icon: Landmark, title: 'County Road Intelligence', desc: 'A dedicated data platform for county governments to monitor, budget and plan road maintenance across their jurisdiction.', badge: 'Pilot 2026' },
-  { icon: Smartphone, title: 'PathIQ Mobile', desc: 'A native iOS and Android app bringing the full PathIQ Navigators experience to the mobile-first Kenyan user.', badge: 'Q2 2027' },
+  { icon: Smartphone, title: 'PathIQ Mobile', desc: 'A native iOS and Android app bringing the full PathIQ Navigators experience to mobile-first drivers everywhere.', badge: 'Q2 2027' },
 ]
 
 export default function RoadmapSection() {

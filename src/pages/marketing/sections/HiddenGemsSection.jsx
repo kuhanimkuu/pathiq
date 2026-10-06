@@ -12,7 +12,7 @@ export default function HiddenGemsSection() {
   return (
     <section id="hidden-gems" className="section gems">
       <div className="pill pill-green center">Hidden Gems</div>
-      <h2 className="center">Discover the Kenya that maps don&apos;t always show.</h2>
+      <h2 className="center">Discover the places maps don&apos;t always show.</h2>
       <p className="section-sub center">
         Local restaurants, hidden trails, scenic spots and authentic markets &mdash; all verified by Scouts on the
         ground and backed by community ratings.

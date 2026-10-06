@@ -232,9 +232,9 @@ function MarketingLayout() {
             <div className="brand">
               <Logo size={32} />
             </div>
-            <p>Kenya&apos;s most intelligent navigation and geographic data platform.</p>
+            <p>Navigation and geographic intelligence, built from the road up.</p>
             <div className="tag-row">
-              <span className="tag tag-grey">Nairobi, Kenya</span>
+              <span className="tag tag-grey">Built in Nairobi</span>
               <span className="tag tag-green">Live</span>
             </div>
           </div>

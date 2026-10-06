@@ -1,7 +1,7 @@
 {
   "name": "PathIQ Navigators",
   "short_name": "PathIQ",
-  "description": "Better routes and Hidden Gems for drivers in Kenya.",
+  "description": "Better routes and Hidden Gems for drivers, wherever you drive.",
   "start_url": "/app/map",
   "scope": "/",
   "display": "standalone",

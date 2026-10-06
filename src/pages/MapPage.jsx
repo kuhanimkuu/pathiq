@@ -200,6 +200,9 @@ function MapPage() {
   //   tripId, reroutes, startedAt }
   const [nav, setNav] = useState(null)
   const [gemAlert, setGemAlert] = useState(null) // { type: 'approaching' | 'passed', gem, aheadM, detourMin, key }
+  // While navigating the camera follows the driver, until they drag the map
+  // to look along the route; "Re-centre" turns it back on.
+  const [follow, setFollow] = useState(true)
   const alertedRef = useRef(new Set())
   const [navError, setNavError] = useState('')
   const [muted, setMuted] = useState(readMuted)
@@ -214,7 +217,14 @@ function MapPage() {
   const [mapReady, setMapReady] = useState(false)
   const [mapError, setMapError] = useState('')
 
-  const selectedGem = selected?.type === 'gem' ? gems.find((g) => g.id === selected.id) : null
+  // Gems near the driver, plus any along the planned route, which can be far
+  // beyond RADIUS_M on a long trip.
+  const allGems = useMemo(() => {
+    if (!plan || corridor.gems.length === 0) return gems
+    const near = new Set(gems.map((g) => g.id))
+    return [...gems, ...corridor.gems.filter((g) => !near.has(g.id))]
+  }, [gems, plan, corridor])
+  const selectedGem = selected?.type === 'gem' ? allGems.find((g) => g.id === selected.id) : null
   const selectedIncident = selected?.type === 'incident' ? incidents.find((i) => i.id === selected.id) : null
   const selectedRoute = plan?.options.find((o) => o.id === plan.selectedId) ?? null
   const navActive = nav != null && nav.status !== 'arrived'
@@ -517,6 +527,7 @@ function MapPage() {
     setShowRouteSteps(false)
     saveActiveTrip(tripRecord(next, step))
     speak(`Starting route to ${destinationName}.`)
+    setFollow(true)
     const map = mapRef.current
     if (map && livePos) {
       map.setZoom(NAV_ZOOM)
@@ -645,7 +656,7 @@ function MapPage() {
       t.s = loc.s
       t.seg = loc.seg
     }
-    mapRef.current?.panTo(pos)
+    if (follow) mapRef.current?.panTo(pos)
 
     // Stops on the way, in order: reached when progress gets to the end of its leg.
     const legEnds = current.model.legEnds
@@ -713,6 +724,7 @@ function MapPage() {
         const syncZoomClass = () => div.classList.toggle('show-maneuvers', map.getZoom() >= MANEUVER_MIN_ZOOM)
         map.addListener('zoom_changed', syncZoomClass)
         syncZoomClass()
+        map.addListener('dragstart', () => setFollow(false))
         map.addListener('click', (e) => {
           const l = latest.current
           if (l.nav || l.preview) return // no re-planning mid-drive
@@ -875,8 +887,8 @@ function MapPage() {
 
   const visibleGems = useMemo(
     () =>
-      layers.gems ? gems.filter((g) => activeCategories.size === 0 || activeCategories.has(g.category)) : [],
-    [gems, activeCategories, layers.gems],
+      layers.gems ? allGems.filter((g) => activeCategories.size === 0 || activeCategories.has(g.category)) : [],
+    [allGems, activeCategories, layers.gems],
   )
   const visibleIncidents = useMemo(() => (layers.reports ? incidents : []), [incidents, layers.reports])
 
@@ -1147,6 +1159,26 @@ function MapPage() {
     map.panTo(previewStep.start)
   }, [mapReady, previewStep])
 
+  // Mid-drive: the whole route at once (to see the traffic ahead), or back to
+  // following the driver.
+  function showRouteOverview() {
+    const map = mapRef.current
+    const api = mapsApiRef.current
+    const path = nav?.model.path ?? selectedRoute?.path
+    if (!map || !api || !path?.length) return
+    setFollow(false)
+    const bounds = new api.LatLngBounds()
+    path.forEach((p) => bounds.extend(p))
+    map.fitBounds(bounds, { top: 170, bottom: 120, left: 40, right: 40 })
+  }
+  function recentre() {
+    setFollow(true)
+    const map = mapRef.current
+    if (!map || !livePos) return
+    map.setZoom(NAV_ZOOM)
+    map.panTo(livePos)
+  }
+
   function closePreview() {
     setPreview(null)
     // After the panel re-renders, so its height is known.
@@ -1234,6 +1266,12 @@ function MapPage() {
       {mapError && <p className="map-status">{mapError}</p>}
 
       {nav ? (
+        <>
+        {nav.status !== 'arrived' && (
+          <button className="nav-camera-btn" onClick={follow ? showRouteOverview : recentre}>
+            {follow ? <Eye size={15} /> : <Navigation2 size={15} />} {follow ? 'Overview' : 'Re-centre'}
+          </button>
+        )}
         <NavigationHud
           step={nav.step}
           steps={nav.model.steps}
@@ -1266,6 +1304,7 @@ function MapPage() {
             </div>
           )}
         </NavigationHud>
+        </>
       ) : preview != null && selectedRoute?.steps?.length > 0 ? (
         <RoutePreviewHud
           steps={selectedRoute.steps}
@@ -1573,7 +1612,13 @@ function MapPage() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>{selectedGem.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 2 }}>
-                    {gemStyle(selectedGem.category).label} · {(selectedGem.distance_m / 1000).toFixed(1)} km away
+                    {gemStyle(selectedGem.category).label}
+                    {selectedGem.distance_m != null
+                      ? ` · ${(selectedGem.distance_m / 1000).toFixed(1)} km away`
+                      : position
+                        ? ` · ${(distanceM(position, selectedGem) / 1000).toFixed(1)} km away`
+                        : ''}
+                    {selectedGem.distance_from_route_m != null && ` · ${Math.round(selectedGem.distance_from_route_m)} m off your route`}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
                     {[1, 2, 3, 4, 5].map((n) => (

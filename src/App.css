@@ -1218,6 +1218,28 @@ html.light .map-alert {
   cursor: pointer;
 }
 
+/* Overview / Re-centre, just above the nav footer. */
+.nav-camera-btn {
+  position: absolute;
+  left: 16px;
+  bottom: 96px;
+  z-index: 15;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
 .map-route-line {
   position: absolute;
   inset: 0;

@@ -1,6 +1,6 @@
 // POST /functions/v1/places
 // Body, one of:
-//   { mode: 'nearby', center: { lat, lng } }
+//   { mode: 'nearby', center: { lat, lng }, radiusM? }
 //   { mode: 'route', encodedPolyline, categories: ['food', ...] }
 //
 // Google's own places as a second tier of gems (see _shared/places.ts). The
@@ -11,7 +11,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, json } from '../_shared/cors.ts'
 import { searchAlongRoute, searchNearby, ROUTE_QUERY, type GemCategory, type GooglePlace } from '../_shared/places.ts'
 
-const NEARBY_RADIUS_M = 5000
+// Nearby searches cover the area on screen: the app sends its radius, kept
+// within Google's limits (Nearby Search allows up to 50 km).
+const NEARBY_RADIUS_M = { min: 1000, max: 50_000, default: 5000 }
 const MAX_POLYLINE_CHARS = 60_000
 const USER_LIMIT = { max: 40, window: '10 minutes' }
 const IP_LIMIT = { max: 80, window: '10 minutes' }
@@ -50,7 +52,7 @@ Deno.serve(async (req) => {
   if (Number(req.headers.get('content-length') ?? 0) > MAX_POLYLINE_CHARS + 1024) {
     return json({ error: 'Body too large' }, 413)
   }
-  let body: { mode?: unknown; center?: unknown; encodedPolyline?: unknown; categories?: unknown }
+  let body: { mode?: unknown; center?: unknown; radiusM?: unknown; encodedPolyline?: unknown; categories?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -63,7 +65,11 @@ Deno.serve(async (req) => {
   if (body.mode === 'nearby') {
     const center = parsePoint(body.center)
     if (!center) return json({ error: 'center needs valid numeric lat and lng' }, 400)
-    run = () => searchNearby(googleKey, center, NEARBY_RADIUS_M)
+    const radiusM =
+      typeof body.radiusM === 'number' && Number.isFinite(body.radiusM)
+        ? Math.min(Math.max(body.radiusM, NEARBY_RADIUS_M.min), NEARBY_RADIUS_M.max)
+        : NEARBY_RADIUS_M.default
+    run = () => searchNearby(googleKey, center, radiusM)
   } else if (body.mode === 'route') {
     const polyline = body.encodedPolyline
     if (typeof polyline !== 'string' || polyline.length === 0 || polyline.length > MAX_POLYLINE_CHARS) {

@@ -29,8 +29,8 @@ import ManeuverIcon from '../components/ManeuverIcon'
 
 const RADIUS_M = 5000
 const ON_ROUTE_M = 100 // a gem this close to the route is "on" it; further is a detour
-const GOOGLE_REFETCH_M = 2000 // fetch Google's nearby places again after moving this far
-const GOOGLE_VIEW_MIN_ZOOM = 12 // and for the area on screen only when zoomed in to town level
+const GOOGLE_AROUND_ME_M = 5000 // Google's places around the driver: this far out
+const GOOGLE_VIEW_MIN_ZOOM = 9 // and for the area on screen from about county level in
 const GOOGLE_VIEW_SETTLE_MS = 700 // …once the map has stopped moving this long
 const GOOGLE_PAUSE_MS = 5 * 60 * 1000 // after hitting the search limit, wait this long
 const VIEW_MAX_RADIUS_M = 30_000 // PathIQ gems/reports for the area on screen: at most this far out
@@ -264,29 +264,33 @@ function MapPage() {
   const [view, setView] = useState(null) // { center, radiusM, zoom } — the map area on screen
   const [googleNearby, setGoogleNearby] = useState([])
   const [googleRoute, setGoogleRoute] = useState({ routeId: null, places: [] })
-  const googleCentersRef = useRef([]) // areas whose Google places loaded this session
+  const googleAreasRef = useRef([]) // { center, radiusM } whose Google places loaded this session
   const googlePendingRef = useRef([]) // areas being fetched now
   const googlePausedUntilRef = useRef(0) // after hitting the rate limit
   const googleRouteCache = useRef(new Map()) // polyline → places, this session only
-  // Around the driver, and around wherever they look on the map once zoomed
-  // in to town level (each search is billed, so not for a country-wide view,
-  // and never twice for the same area). Results add up as they move around.
-  // An area only counts as done once its search succeeds, so a refused or
-  // failed one is tried again next time it's on screen.
-  const fetchGoogleAround = useCallback((center) => {
-    const near = (c) => distanceM(c, center) < GOOGLE_REFETCH_M
-    if (googleCentersRef.current.some(near) || googlePendingRef.current.some(near)) return
+  // Around the driver, and for the area on screen as they browse, like
+  // Google Maps: zoomed out, the most popular places across the whole view
+  // (one search covers up to 50 km); zoomed in, another search fills in the
+  // detail. Each search is billed, so an area already searched at about this
+  // zoom isn't searched again. Results add up as they move around. An area
+  // only counts as done once its search succeeds, so a refused or failed one
+  // is tried again next time it's on screen.
+  const fetchGoogleAround = useCallback((center, radiusM) => {
+    const area = { center, radiusM }
+    // Same area, searched at a similar scale (so zooming in still adds detail).
+    const covers = (a) => distanceM(a.center, center) < radiusM / 2 && a.radiusM <= radiusM * 2.5
+    if (googleAreasRef.current.some(covers) || googlePendingRef.current.some(covers)) return
     if (Date.now() < googlePausedUntilRef.current) return
-    googlePendingRef.current.push(center)
-    fetchGooglePlacesNearby(center).then(({ places, ok, limited }) => {
-      googlePendingRef.current = googlePendingRef.current.filter((c) => c !== center)
+    googlePendingRef.current.push(area)
+    fetchGooglePlacesNearby(center, radiusM).then(({ places, ok, limited }) => {
+      googlePendingRef.current = googlePendingRef.current.filter((a) => a !== area)
       if (limited) {
         googlePausedUntilRef.current = Date.now() + GOOGLE_PAUSE_MS
         setNotice("Google places paused for a few minutes (search limit). PathIQ gems still show.")
         return
       }
       if (!ok) return
-      googleCentersRef.current.push(center)
+      googleAreasRef.current.push(area)
       setGoogleNearby((prev) => {
         const seen = new Set(prev.map((p) => p.id))
         return [...prev, ...places.filter((p) => !seen.has(p.id))]
@@ -294,12 +298,12 @@ function MapPage() {
     })
   }, [])
   useEffect(() => {
-    if (session && position) fetchGoogleAround(position)
+    if (session && position) fetchGoogleAround(position, GOOGLE_AROUND_ME_M)
   }, [session, position, fetchGoogleAround])
   // Once the map has settled for a moment, so a run of pans costs one search.
   useEffect(() => {
     if (!session || !view || view.zoom < GOOGLE_VIEW_MIN_ZOOM) return
-    const timer = setTimeout(() => fetchGoogleAround(view.center), GOOGLE_VIEW_SETTLE_MS)
+    const timer = setTimeout(() => fetchGoogleAround(view.center, view.radiusM), GOOGLE_VIEW_SETTLE_MS)
     return () => clearTimeout(timer)
   }, [session, view, fetchGoogleAround])
   useEffect(() => {

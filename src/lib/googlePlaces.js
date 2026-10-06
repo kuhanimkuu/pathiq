@@ -26,8 +26,9 @@ async function invoke(body) {
   return { places: (data?.places ?? []).map((p) => ({ ...p, source: 'google' })), ok: true, limited: false }
 }
 
-export function fetchGooglePlacesNearby(center) {
-  return invoke({ mode: 'nearby', center: { lat: center.lat, lng: center.lng } })
+// The most popular places within radiusM (the server keeps it to 1–50 km).
+export function fetchGooglePlacesNearby(center, radiusM = 5000) {
+  return invoke({ mode: 'nearby', center: { lat: center.lat, lng: center.lng }, radiusM: Math.round(radiusM) })
 }
 
 export function fetchGooglePlacesAlongRoute(encodedPolyline, categories) {

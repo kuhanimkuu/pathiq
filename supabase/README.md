@@ -169,7 +169,7 @@ The gem suggestion engine runs in the app rather than here. It uses `gems_along_
 
 ## Google's places: `places` edge function
 
-A second tier of gems under PathIQ's own (`functions/places`, `_shared/places.ts`). `{ mode: 'nearby', center }` returns popular places of PathIQ's categories within 5 km (Nearby Search); `{ mode: 'route', encodedPolyline, categories }` returns places along a route, one Text Search per category. Google types are mapped to PathIQ categories, so anything else is dropped.
+A second tier of gems under PathIQ's own (`functions/places`, `_shared/places.ts`). `{ mode: 'nearby', center }` returns the most popular places of PathIQ's categories within `radiusM` (1–50 km, default 5; Nearby Search) — the app sends the area on screen, from zoom 9 in; `{ mode: 'route', encodedPolyline, categories }` returns places along a route, one Text Search per category. Google types are mapped to PathIQ categories, so anything else is dropped.
 
 - **PathIQ gems come first.** The app draws Google's places smaller and outlined, lists them after PathIQ gems, drops any within 80 m of a PathIQ gem, and only announces top-rated ones (4.5+, 100+ reviews) while driving. Business-uploaded gems, when they exist, belong in PathIQ's tier.
 - **Not cached.** Google's terms don't allow storing Places content, so the app keeps results for the session only and shows "From Google Maps" on them.

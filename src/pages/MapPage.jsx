@@ -30,6 +30,15 @@ import ManeuverIcon from '../components/ManeuverIcon'
 const RADIUS_M = 5000
 const ON_ROUTE_M = 100 // a gem this close to the route is "on" it; further is a detour
 const GOOGLE_REFETCH_M = 2000 // fetch Google's nearby places again after moving this far
+const GOOGLE_VIEW_MIN_ZOOM = 13 // and for the area on screen only when zoomed in to town level
+const VIEW_MAX_RADIUS_M = 30_000 // PathIQ gems/reports for the area on screen: at most this far out
+
+// Fetched rows added to what's loaded; a newer copy of the same row wins.
+function mergeById(prev, rows) {
+  const byId = new Map(prev.map((r) => [r.id, r]))
+  rows.forEach((r) => byId.set(r.id, r))
+  return [...byId.values()]
+}
 const GEM_ROUTE_DEFAULT_M = 400 // gem corridor when gem alerts are off (as routePlanning.js)
 const NAV_ZOOM = 17
 const OFF_ROUTE_M = 50 // further than this from the line counts as off-route
@@ -250,16 +259,30 @@ function MapPage() {
 
   // Google's places, a second tier under PathIQ gems (lib/googlePlaces):
   // popular ones near the driver, and ones along the selected route.
+  const [view, setView] = useState(null) // { center, radiusM, zoom } — the map area on screen
   const [googleNearby, setGoogleNearby] = useState([])
   const [googleRoute, setGoogleRoute] = useState({ routeId: null, places: [] })
-  const googleCenterRef = useRef(null)
+  const googleCentersRef = useRef([]) // where Google's nearby places were fetched this session
   const googleRouteCache = useRef(new Map()) // polyline → places, this session only
+  // Around the driver, and around wherever they look on the map once zoomed
+  // in to town level (each search is billed, so not for a country-wide view,
+  // and never twice for the same area). Results add up as they move around.
+  const fetchGoogleAround = useCallback((center) => {
+    if (googleCentersRef.current.some((c) => distanceM(c, center) < GOOGLE_REFETCH_M)) return
+    googleCentersRef.current.push(center)
+    fetchGooglePlacesNearby(center).then((rows) =>
+      setGoogleNearby((prev) => {
+        const seen = new Set(prev.map((p) => p.id))
+        return [...prev, ...rows.filter((p) => !seen.has(p.id))]
+      }),
+    )
+  }, [])
   useEffect(() => {
-    if (!session || !position) return
-    if (googleCenterRef.current && distanceM(googleCenterRef.current, position) < GOOGLE_REFETCH_M) return
-    googleCenterRef.current = position
-    fetchGooglePlacesNearby(position).then(setGoogleNearby)
-  }, [session, position])
+    if (session && position) fetchGoogleAround(position)
+  }, [session, position, fetchGoogleAround])
+  useEffect(() => {
+    if (session && view && view.zoom >= GOOGLE_VIEW_MIN_ZOOM) fetchGoogleAround(view.center)
+  }, [session, view, fetchGoogleAround])
   useEffect(() => {
     const polyline = selectedRoute?.encodedPolyline
     if (!polyline) return
@@ -337,12 +360,33 @@ function MapPage() {
     [userId],
   )
 
+  // PathIQ gems and reports for the area on screen (free: our own database),
+  // added to what's loaded, so browsing anywhere shows what's there.
+  const viewAreasRef = useRef([])
+  useEffect(() => {
+    if (!session || !view) return
+    const radiusM = Math.round(Math.min(Math.max(view.radiusM, RADIUS_M), VIEW_MAX_RADIUS_M))
+    // Already covered by an area fetched this session.
+    if (viewAreasRef.current.some((a) => distanceM(a.center, view.center) + radiusM <= a.radiusM)) return
+    viewAreasRef.current.push({ center: view.center, radiusM })
+    const { lat, lng } = view.center
+    // distance_m here is from the middle of the screen, not the driver, so
+    // rows already loaded around the driver are kept as they are.
+    const withoutDistance = (rows) => rows.map((r) => ({ ...r, distance_m: undefined }))
+    Promise.all([fetchNearbyGems(lat, lng, { radiusM }), fetchNearbyRoadReports(lat, lng, radiusM)])
+      .then(([gemRows, incidentRows]) => {
+        setGems((prev) => mergeById(withoutDistance(gemRows), prev))
+        setIncidents((prev) => mergeById(withoutDistance(incidentRows), prev))
+      })
+      .catch(() => {})
+  }, [session, view])
+
   const load = useCallback(async () => {
     try {
       const pos = position ?? (await getCurrentPosition())
       const { gemRows, incidentRows, saved } = await fetchAround(pos)
-      setGems(gemRows)
-      setIncidents(incidentRows)
+      setGems((prev) => mergeById(prev, gemRows))
+      setIncidents((prev) => mergeById(prev, incidentRows))
       setSavedIds(saved)
       setError('')
     } catch (err) {
@@ -360,8 +404,8 @@ function MapPage() {
         if (cancelled) return
         // The GPS watch may already have a live fix; don't replace it with the stand-in.
         setPosition((p) => (p && !p.isFallback ? p : pos))
-        setGems(gemRows)
-        setIncidents(incidentRows)
+        setGems((prev) => mergeById(prev, gemRows))
+        setIncidents((prev) => mergeById(prev, incidentRows))
         setSavedIds(saved)
         setError('')
       } catch (err) {
@@ -769,8 +813,8 @@ function MapPage() {
       if (!draft) mapRef.current?.panTo(pos)
       fetchAround(pos)
         .then(({ gemRows, incidentRows }) => {
-          setGems(gemRows)
-          setIncidents(incidentRows)
+          setGems((prev) => mergeById(prev, gemRows))
+          setIncidents((prev) => mergeById(prev, incidentRows))
         })
         .catch(() => {})
     }
@@ -859,6 +903,15 @@ function MapPage() {
         map.addListener('dragstart', () => {
           setFollow(false)
           setRouteDetails(false)
+        })
+        // What's on screen, once the map settles: gems and reports are
+        // fetched for wherever the driver is looking, not just around them.
+        map.addListener('idle', () => {
+          const c = map.getCenter()
+          const ne = map.getBounds()?.getNorthEast()
+          if (!c || !ne) return
+          const center = { lat: c.lat(), lng: c.lng() }
+          setView({ center, radiusM: distanceM(center, { lat: ne.lat(), lng: ne.lng() }), zoom: map.getZoom() })
         })
         map.addListener('click', (e) => {
           const l = latest.current
@@ -1891,10 +1944,10 @@ function MapPage() {
                   <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>{selectedGem.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 2 }}>
                     {gemStyle(selectedGem.category).label}
-                    {selectedGem.distance_m != null
-                      ? ` · ${(selectedGem.distance_m / 1000).toFixed(1)} km away`
-                      : position
-                        ? ` · ${(distanceM(position, selectedGem) / 1000).toFixed(1)} km away`
+                    {position
+                      ? ` · ${(distanceM(position, selectedGem) / 1000).toFixed(1)} km away`
+                      : selectedGem.distance_m != null
+                        ? ` · ${(selectedGem.distance_m / 1000).toFixed(1)} km away`
                         : ''}
                     {selectedGem.distance_from_route_m != null &&
                       (selectedGem.distance_from_route_m <= ON_ROUTE_M
@@ -1980,10 +2033,10 @@ function MapPage() {
                     {reportTypeLabel(selectedIncident.type)} — severity {selectedIncident.severity}/5
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 4 }}>
-                    {selectedIncident.distance_m != null
-                      ? `${(selectedIncident.distance_m / 1000).toFixed(1)} km away`
-                      : position
-                        ? `${(distanceM(position, selectedIncident) / 1000).toFixed(1)} km away`
+                    {position
+                      ? `${(distanceM(position, selectedIncident) / 1000).toFixed(1)} km away`
+                      : selectedIncident.distance_m != null
+                        ? `${(selectedIncident.distance_m / 1000).toFixed(1)} km away`
                         : ''}
                     {routeReportIds.has(selectedIncident.id) && ' · on your route'}
                     {selectedIncident.description ? ` · ${selectedIncident.description}` : ''}

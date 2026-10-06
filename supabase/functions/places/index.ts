@@ -13,8 +13,8 @@ import { searchAlongRoute, searchNearby, ROUTE_QUERY, type GemCategory, type Goo
 
 const NEARBY_RADIUS_M = 5000
 const MAX_POLYLINE_CHARS = 60_000
-const USER_LIMIT = { max: 20, window: '10 minutes' }
-const IP_LIMIT = { max: 40, window: '10 minutes' }
+const USER_LIMIT = { max: 40, window: '10 minutes' }
+const IP_LIMIT = { max: 80, window: '10 minutes' }
 // Counted per Google call (a route search makes one per category).
 const GLOBAL_GOOGLE_CALLS_PER_HOUR = Number(Deno.env.get('PLACES_GLOBAL_LIMIT_PER_HOUR') ?? 600)
 

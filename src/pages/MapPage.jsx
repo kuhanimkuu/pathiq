@@ -30,7 +30,9 @@ import ManeuverIcon from '../components/ManeuverIcon'
 const RADIUS_M = 5000
 const ON_ROUTE_M = 100 // a gem this close to the route is "on" it; further is a detour
 const GOOGLE_REFETCH_M = 2000 // fetch Google's nearby places again after moving this far
-const GOOGLE_VIEW_MIN_ZOOM = 13 // and for the area on screen only when zoomed in to town level
+const GOOGLE_VIEW_MIN_ZOOM = 12 // and for the area on screen only when zoomed in to town level
+const GOOGLE_VIEW_SETTLE_MS = 700 // …once the map has stopped moving this long
+const GOOGLE_PAUSE_MS = 5 * 60 * 1000 // after hitting the search limit, wait this long
 const VIEW_MAX_RADIUS_M = 30_000 // PathIQ gems/reports for the area on screen: at most this far out
 
 // Fetched rows added to what's loaded; a newer copy of the same row wins.
@@ -262,26 +264,43 @@ function MapPage() {
   const [view, setView] = useState(null) // { center, radiusM, zoom } — the map area on screen
   const [googleNearby, setGoogleNearby] = useState([])
   const [googleRoute, setGoogleRoute] = useState({ routeId: null, places: [] })
-  const googleCentersRef = useRef([]) // where Google's nearby places were fetched this session
+  const googleCentersRef = useRef([]) // areas whose Google places loaded this session
+  const googlePendingRef = useRef([]) // areas being fetched now
+  const googlePausedUntilRef = useRef(0) // after hitting the rate limit
   const googleRouteCache = useRef(new Map()) // polyline → places, this session only
   // Around the driver, and around wherever they look on the map once zoomed
   // in to town level (each search is billed, so not for a country-wide view,
   // and never twice for the same area). Results add up as they move around.
+  // An area only counts as done once its search succeeds, so a refused or
+  // failed one is tried again next time it's on screen.
   const fetchGoogleAround = useCallback((center) => {
-    if (googleCentersRef.current.some((c) => distanceM(c, center) < GOOGLE_REFETCH_M)) return
-    googleCentersRef.current.push(center)
-    fetchGooglePlacesNearby(center).then((rows) =>
+    const near = (c) => distanceM(c, center) < GOOGLE_REFETCH_M
+    if (googleCentersRef.current.some(near) || googlePendingRef.current.some(near)) return
+    if (Date.now() < googlePausedUntilRef.current) return
+    googlePendingRef.current.push(center)
+    fetchGooglePlacesNearby(center).then(({ places, ok, limited }) => {
+      googlePendingRef.current = googlePendingRef.current.filter((c) => c !== center)
+      if (limited) {
+        googlePausedUntilRef.current = Date.now() + GOOGLE_PAUSE_MS
+        setNotice("Google places paused for a few minutes (search limit). PathIQ gems still show.")
+        return
+      }
+      if (!ok) return
+      googleCentersRef.current.push(center)
       setGoogleNearby((prev) => {
         const seen = new Set(prev.map((p) => p.id))
-        return [...prev, ...rows.filter((p) => !seen.has(p.id))]
-      }),
-    )
+        return [...prev, ...places.filter((p) => !seen.has(p.id))]
+      })
+    })
   }, [])
   useEffect(() => {
     if (session && position) fetchGoogleAround(position)
   }, [session, position, fetchGoogleAround])
+  // Once the map has settled for a moment, so a run of pans costs one search.
   useEffect(() => {
-    if (session && view && view.zoom >= GOOGLE_VIEW_MIN_ZOOM) fetchGoogleAround(view.center)
+    if (!session || !view || view.zoom < GOOGLE_VIEW_MIN_ZOOM) return
+    const timer = setTimeout(() => fetchGoogleAround(view.center), GOOGLE_VIEW_SETTLE_MS)
+    return () => clearTimeout(timer)
   }, [session, view, fetchGoogleAround])
   useEffect(() => {
     const polyline = selectedRoute?.encodedPolyline
@@ -291,9 +310,9 @@ function MapPage() {
     const cached = googleRouteCache.current.get(polyline)
     const load = cached
       ? Promise.resolve(cached)
-      : fetchGooglePlacesAlongRoute(polyline, ALERT_CATEGORIES).then((rows) => {
-          googleRouteCache.current.set(polyline, rows)
-          return rows
+      : fetchGooglePlacesAlongRoute(polyline, ALERT_CATEGORIES).then(({ places, ok }) => {
+          if (ok) googleRouteCache.current.set(polyline, places)
+          return places
         })
     load.then((rows) => {
       if (cancelled) return

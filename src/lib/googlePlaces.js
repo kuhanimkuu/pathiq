@@ -18,11 +18,12 @@ export const ALERT_MIN_RATING = 4.5
 export const ALERT_MIN_REVIEWS = 100
 export const isTopRated = (p) => (p.rating ?? 0) >= ALERT_MIN_RATING && p.ratingCount >= ALERT_MIN_REVIEWS
 
+// Returns { places, ok, limited }. Never throws: when Google is unavailable or
+// the rate limit is reached, the app carries on with PathIQ gems alone.
 async function invoke(body) {
   const { data, error } = await supabase.functions.invoke('places', { body })
-  // Rate limits or a Google problem: carry on with PathIQ gems alone.
-  if (error) return []
-  return (data?.places ?? []).map((p) => ({ ...p, source: 'google' }))
+  if (error) return { places: [], ok: false, limited: error.context?.status === 429 }
+  return { places: (data?.places ?? []).map((p) => ({ ...p, source: 'google' })), ok: true, limited: false }
 }
 
 export function fetchGooglePlacesNearby(center) {

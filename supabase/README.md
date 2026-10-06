@@ -173,7 +173,7 @@ A second tier of gems under PathIQ's own (`functions/places`, `_shared/places.ts
 
 - **PathIQ gems come first.** The app draws Google's places smaller and outlined, lists them after PathIQ gems, drops any within 80 m of a PathIQ gem, and only announces top-rated ones (4.5+, 100+ reviews) while driving. Business-uploaded gems, when they exist, belong in PathIQ's tier.
 - **Not cached.** Google's terms don't allow storing Places content, so the app keeps results for the session only and shows "From Google Maps" on them.
-- **Billed per Google call** and rate-limited: 20 requests per user and 40 per IP per 10 minutes, and `PLACES_GLOBAL_LIMIT_PER_HOUR` (default 600) Google calls an hour overall. Counted in `route_usage_daily` as `places*` outcomes for the admin Usage panel. When limited, the app quietly shows PathIQ gems alone.
+- **Billed per Google call** and rate-limited: 40 requests per user and 80 per IP per 10 minutes, and `PLACES_GLOBAL_LIMIT_PER_HOUR` (default 600) Google calls an hour overall. Counted in `route_usage_daily` as `places*` outcomes for the admin Usage panel. When limited, the app says so briefly, shows PathIQ gems alone, and tries again after 5 minutes.
 
 ## Tests
 

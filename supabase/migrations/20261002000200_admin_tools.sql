@@ -1,3 +1,5 @@
+-- Safe to re-run (it was applied by hand to the hosted project once).
+--
 -- Admin dashboard, second pass: a map of everything, user and gem detail,
 -- Google Routes usage and cost, bulk gem import, merging duplicate gems, and
 -- suspending accounts. Every admin_* function starts with admin_guard()
@@ -11,10 +13,10 @@
 -- contribute: no gems, road reports, photos, ratings or Scout applications.
 
 alter table public.profiles
-  add column suspended_until   timestamptz,
-  add column suspension_reason text check (char_length(suspension_reason) <= 500);
+  add column if not exists suspended_until   timestamptz,
+  add column if not exists suspension_reason text check (char_length(suspension_reason) <= 500);
 
-create function public.is_suspended()
+create or replace function public.is_suspended()
 returns boolean
 language sql
 stable
@@ -27,7 +29,7 @@ $$;
 revoke execute on function public.is_suspended() from public, anon;
 grant execute on function public.is_suspended() to authenticated;
 
-create function public.block_suspended_writes()
+create or replace function public.block_suspended_writes()
 returns trigger
 language plpgsql
 security definer
@@ -49,20 +51,20 @@ $$;
 
 revoke execute on function public.block_suspended_writes() from public, anon, authenticated;
 
-create trigger gems_block_suspended before insert on public.gems
+create or replace trigger gems_block_suspended before insert on public.gems
   for each row execute function public.block_suspended_writes();
-create trigger road_reports_block_suspended before insert on public.road_reports
+create or replace trigger road_reports_block_suspended before insert on public.road_reports
   for each row execute function public.block_suspended_writes();
-create trigger scout_applications_block_suspended before insert on public.scout_applications
+create or replace trigger scout_applications_block_suspended before insert on public.scout_applications
   for each row execute function public.block_suspended_writes();
-create trigger gem_confirmations_block_suspended before insert or update on public.gem_confirmations
+create or replace trigger gem_confirmations_block_suspended before insert or update on public.gem_confirmations
   for each row execute function public.block_suspended_writes();
-create trigger scout_photos_block_suspended before insert on storage.objects
+create or replace trigger scout_photos_block_suspended before insert on storage.objects
   for each row execute function public.block_suspended_writes();
 
 -- p_until null = until lifted. Admins can't be suspended (demote first), and
 -- nobody can suspend themselves.
-create function public.admin_suspend_user(p_user_id uuid, p_until timestamptz default null, p_reason text default null)
+create or replace function public.admin_suspend_user(p_user_id uuid, p_until timestamptz default null, p_reason text default null)
 returns public.profiles
 language plpgsql
 security definer
@@ -100,7 +102,7 @@ begin
 end;
 $$;
 
-create function public.admin_unsuspend_user(p_user_id uuid)
+create or replace function public.admin_unsuspend_user(p_user_id uuid)
 returns public.profiles
 language plpgsql
 security definer
@@ -150,9 +152,9 @@ $$;
 
 -- admin_users gains the suspension columns (the return type changes, so it's
 -- dropped and recreated).
-drop function public.admin_users(text, public.user_role, boolean, text, integer, integer);
+drop function if exists public.admin_users(text, public.user_role, boolean, text, integer, integer);
 
-create function public.admin_users(
+create or replace function public.admin_users(
   p_search         text default null,
   p_role           public.user_role default null,
   p_include_guests boolean default false,
@@ -236,7 +238,7 @@ $$;
 -- Gems and reports (any status) inside the visible box, plus where trips
 -- went in the last 30 days, grouped into ~500 m cells (no single trip is
 -- shown). Each list is capped so a zoomed-out map stays light.
-create function public.admin_map_points(
+create or replace function public.admin_map_points(
   p_south double precision,
   p_west  double precision,
   p_north double precision,
@@ -301,7 +303,7 @@ $$;
 -- Detail pages
 -- =====================================================================
 
-create function public.admin_user_detail(p_user_id uuid)
+create or replace function public.admin_user_detail(p_user_id uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -374,7 +376,7 @@ begin
 end;
 $$;
 
-create function public.admin_gem_detail(p_gem_id uuid)
+create or replace function public.admin_gem_detail(p_gem_id uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -435,7 +437,7 @@ $$;
 
 -- Gem pairs that are probably the same place: within p_radius_m of each other,
 -- neither rejected. Closest first.
-create function public.admin_duplicate_gems(p_radius_m integer default 100)
+create or replace function public.admin_duplicate_gems(p_radius_m integer default 100)
 returns table (
   a_id uuid, a_name text, a_category public.gem_category, a_status public.review_status, a_created_at timestamptz,
   b_id uuid, b_name text, b_category public.gem_category, b_status public.review_status, b_created_at timestamptz,
@@ -465,7 +467,7 @@ $$;
 -- across (where the same person hasn't already got one on p_keep), empty
 -- details on p_keep are filled from p_remove, then p_remove is deleted.
 -- A Scout's earning for p_remove is kept but no longer points at a gem.
-create function public.admin_merge_gems(p_keep uuid, p_remove uuid)
+create or replace function public.admin_merge_gems(p_keep uuid, p_remove uuid)
 returns public.gems
 language plpgsql
 security definer
@@ -526,7 +528,7 @@ $$;
 -- verified gems. A row is a duplicate if a gem that isn't rejected is within
 -- 75 m, or one with the same name is within 300 m, or an earlier row in the
 -- same file matches the same way.
-create function public.admin_import_gems(p_rows jsonb, p_commit boolean default false)
+create or replace function public.admin_import_gems(p_rows jsonb, p_commit boolean default false)
 returns table (row_no integer, status text, message text, gem_id uuid)
 language plpgsql
 security definer
@@ -624,7 +626,7 @@ $$;
 --   cache           served from the 10-minute cache (free)
 --   limited         refused by a per-user / per-IP / global limit
 --   error           Google failed, or no route
-create table public.route_usage_daily (
+create table if not exists public.route_usage_daily (
   day     date not null default (now() at time zone 'Africa/Nairobi')::date,
   outcome text not null check (outcome in ('google', 'google_traffic', 'cache', 'limited', 'error')),
   calls   integer not null default 0,
@@ -634,7 +636,7 @@ create table public.route_usage_daily (
 alter table public.route_usage_daily enable row level security;
 revoke all on public.route_usage_daily from anon, authenticated;
 
-create function public.record_route_usage(p_outcome text)
+create or replace function public.record_route_usage(p_outcome text)
 returns void
 language sql
 security definer
@@ -649,35 +651,38 @@ revoke execute on function public.record_route_usage(text) from public, anon, au
 grant execute on function public.record_route_usage(text) to service_role;
 
 -- Small admin-editable settings, e.g. what Google charges per 1,000 calls.
-create table public.app_settings (
+create table if not exists public.app_settings (
   key        text primary key,
   value      jsonb not null,
   updated_at timestamptz not null default now()
 );
 
 insert into public.app_settings (key, value) values
-  ('routes_usd_per_1000', '{"google": 5, "google_traffic": 10}'::jsonb);
+  ('routes_usd_per_1000', '{"google": 5, "google_traffic": 10}'::jsonb)
+on conflict (key) do nothing;
 
-create trigger app_settings_set_updated_at
+create or replace trigger app_settings_set_updated_at
   before update on public.app_settings
   for each row execute function public.set_updated_at();
 
 alter table public.app_settings enable row level security;
 
+drop policy if exists "app_settings: admins read" on public.app_settings;
 create policy "app_settings: admins read" on public.app_settings
   for select to authenticated using (public.is_admin());
+drop policy if exists "app_settings: admins update" on public.app_settings;
 create policy "app_settings: admins update" on public.app_settings
   for update to authenticated using (public.is_admin()) with check (public.is_admin());
 
 revoke all on public.app_settings from anon, authenticated;
 grant select, update (value) on public.app_settings to authenticated;
 
-create trigger app_settings_audit after insert or update or delete on public.app_settings
+create or replace trigger app_settings_audit after insert or update or delete on public.app_settings
   for each row execute function public.audit_admin_write();
 
 -- Daily route calls, cost estimate inputs, and who is hitting rate limits in
 -- the last 24 hours (rate_limit_hits keeps about a day).
-create function public.admin_usage(p_days integer default 30)
+create or replace function public.admin_usage(p_days integer default 30)
 returns jsonb
 language plpgsql
 security definer

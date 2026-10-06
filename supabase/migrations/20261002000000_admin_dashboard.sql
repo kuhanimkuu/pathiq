@@ -121,7 +121,13 @@ grant select on public.admin_audit_log to authenticated;
 
 -- Logs any write an admin makes to a review table. Raw coordinates are left
 -- out (they're binary in jsonb); a moved location shows as "moved".
-create or replace function public.audit_admin_write()
+-- Skipped when it already exists: 20261002000200 replaces it with a newer
+-- version, which re-running this migration must not overwrite.
+do $do$
+begin
+  if to_regprocedure('public.audit_admin_write()') is null then
+    execute $fn$
+create function public.audit_admin_write()
 returns trigger
 language plpgsql
 security definer
@@ -180,7 +186,11 @@ begin
   );
   return null;
 end;
-$$;
+$$
+    $fn$;
+  end if;
+end;
+$do$;
 
 revoke execute on function public.audit_admin_write() from public, anon, authenticated;
 
@@ -432,7 +442,14 @@ $$;
 -- =====================================================================
 
 -- p_sort: 'newest' | 'submissions' (Scout leaderboard) | 'owed'
-create or replace function public.admin_users(
+-- Skipped when admin_users already exists: 20261002000200 replaces it with a
+-- version that has more columns, and create or replace can't change the
+-- return type, so re-running this over a newer database would fail.
+do $do$
+begin
+  if to_regprocedure('public.admin_users(text, public.user_role, boolean, text, integer, integer)') is null then
+    execute $fn$
+create function public.admin_users(
   p_search         text default null,
   p_role           public.user_role default null,
   p_include_guests boolean default false,
@@ -502,7 +519,11 @@ begin
   limit least(greatest(coalesce(p_limit, 50), 1), 200)
   offset greatest(coalesce(p_offset, 0), 0);
 end;
-$$;
+$$
+    $fn$;
+  end if;
+end;
+$do$;
 
 -- Promote or demote. An admin can't change their own role (so the last admin
 -- can't lock everyone out), and guests can't become Scouts or admins.

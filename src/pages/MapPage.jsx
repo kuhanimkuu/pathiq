@@ -27,6 +27,7 @@ import DirectionsList from '../components/DirectionsList'
 import ManeuverIcon from '../components/ManeuverIcon'
 
 const RADIUS_M = 5000
+const ON_ROUTE_M = 100 // a gem this close to the route is "on" it; further is a detour
 const NAV_ZOOM = 17
 const OFF_ROUTE_M = 50 // further than this from the line counts as off-route
 const OFF_ROUTE_FIXES = 3 // …for this many GPS fixes in a row, then reroute
@@ -224,12 +225,33 @@ function MapPage() {
   // beyond RADIUS_M on a long trip.
   const allGems = useMemo(() => {
     if (!plan || corridor.gems.length === 0) return gems
+    // A gem in both keeps its route details (distance off the route).
+    const onRoute = new Map(corridor.gems.map((g) => [g.id, g]))
     const near = new Set(gems.map((g) => g.id))
-    return [...gems, ...corridor.gems.filter((g) => !near.has(g.id))]
+    return [
+      ...gems.map((g) => (onRoute.has(g.id) ? { ...onRoute.get(g.id), ...g } : g)),
+      ...corridor.gems.filter((g) => !near.has(g.id)),
+    ]
   }, [gems, plan, corridor])
-  const selectedGem = selected?.type === 'gem' ? allGems.find((g) => g.id === selected.id) : null
-  const selectedIncident = selected?.type === 'incident' ? incidents.find((i) => i.id === selected.id) : null
   const selectedRoute = plan?.options.find((o) => o.id === plan.selectedId) ?? null
+  // Reports on the selected route, likewise: the routes function only says
+  // how far along the route each one is, so far-off ones are pinned there.
+  const allIncidents = useMemo(() => {
+    const known = new Set(incidents.map((i) => i.id))
+    const missing = (selectedRoute?.hazards ?? []).filter((h) => !known.has(h.id))
+    if (missing.length === 0) return incidents
+    const model = buildNavModel(selectedRoute)
+    const placed = missing
+      .map((h) => {
+        const s = Math.min(h.routeFraction * model.total, model.total - 1)
+        const [at] = slicePath(model, s, s + 1)
+        return at && { id: h.id, type: h.type, severity: h.severity, lat: at.lat, lng: at.lng, onRouteOnly: true }
+      })
+      .filter(Boolean)
+    return [...incidents, ...placed]
+  }, [incidents, selectedRoute])
+  const selectedGem = selected?.type === 'gem' ? allGems.find((g) => g.id === selected.id) : null
+  const selectedIncident = selected?.type === 'incident' ? allIncidents.find((i) => i.id === selected.id) : null
   const navActive = nav != null && nav.status !== 'arrived'
   // Only a real GPS fix, never the central-Nairobi stand-in used when location is off.
   const livePos = position && !position.isFallback ? position : null
@@ -896,12 +918,31 @@ function MapPage() {
       layers.gems ? allGems.filter((g) => activeCategories.size === 0 || activeCategories.has(g.category)) : [],
     [allGems, activeCategories, layers.gems],
   )
-  const visibleIncidents = useMemo(() => (layers.reports ? incidents : []), [incidents, layers.reports])
+  const visibleIncidents = useMemo(() => (layers.reports ? allIncidents : []), [allIncidents, layers.reports])
 
   const routeGemIds = useMemo(() => new Set((plan ? corridor.gems : []).map((g) => g.id)), [plan, corridor])
   // Reports that still matter on the selected route, as judged by the routes
   // edge function (old ones fade out — see isStillRelevant in scoring.ts).
   const routeReportIds = useMemo(() => new Set((selectedRoute?.hazards ?? []).map((h) => h.id)), [selectedRoute])
+  // With a route planned the map focuses on it: what's along it (or a short
+  // detour off it) glows, everything else fades back.
+  const routeFocus = plan != null
+  // Everything along the selected route, in the order you'll reach it.
+  const alongRoute = useMemo(() => {
+    if (!plan) return []
+    const gemItems = corridor.gems
+      .filter((g) => layers.gems && (activeCategories.size === 0 || activeCategories.has(g.category)))
+      .map((g) => ({ kind: 'gem', id: g.id, at: g.route_fraction, item: g }))
+    const reportItems = layers.reports
+      ? (selectedRoute?.hazards ?? []).map((h) => ({
+          kind: 'incident',
+          id: h.id,
+          at: h.routeFraction,
+          item: allIncidents.find((i) => i.id === h.id) ?? h,
+        }))
+      : []
+    return [...gemItems, ...reportItems].sort((a, b) => a.at - b.at)
+  }, [plan, corridor, selectedRoute, allIncidents, layers, activeCategories])
 
   // The driver's dot: one marker, moved as GPS updates arrive. Only for a
   // real fix; with location off there's no "you are here".
@@ -952,7 +993,13 @@ function MapPage() {
       const isSelected = selected?.type === 'gem' && selected.id === gem.id
       const el = host(
         gem.name,
-        <GemPin category={gem.category} onRoute={onRoute} saved={savedIds.has(gem.id)} selected={isSelected} />,
+        <GemPin
+          category={gem.category}
+          onRoute={onRoute}
+          dimmed={routeFocus && !onRoute && !isSelected}
+          saved={savedIds.has(gem.id)}
+          selected={isSelected}
+        />,
       )
       add({ lat: gem.lat, lng: gem.lng }, el, isSelected ? 40 : onRoute ? 20 : 10, () =>
         setSelected({ type: 'gem', id: gem.id }),
@@ -973,7 +1020,13 @@ function MapPage() {
       const isSelected = selected?.type === 'incident' && selected.id === incident.id
       const el = host(
         `${reportTypeLabel(incident.type)}, severity ${incident.severity}`,
-        <ReportPin type={incident.type} severity={incident.severity} onRoute={onRoute} selected={isSelected} />,
+        <ReportPin
+          type={incident.type}
+          severity={incident.severity}
+          onRoute={onRoute}
+          dimmed={routeFocus && !onRoute && !isSelected}
+          selected={isSelected}
+        />,
       )
       add({ lat: incident.lat, lng: incident.lng }, el, isSelected ? 40 : onRoute ? 21 : 11, () =>
         setSelected({ type: 'incident', id: incident.id }),
@@ -1010,7 +1063,7 @@ function MapPage() {
       markers.forEach((m) => m.setMap(null))
       setTimeout(() => roots.forEach((r) => r.unmount())) // not during React's own commit
     }
-  }, [mapReady, visibleGems, visibleIncidents, routeGemIds, routeReportIds, draft, dropped, selected, savedIds, pinned])
+  }, [mapReady, visibleGems, visibleIncidents, routeGemIds, routeReportIds, routeFocus, draft, dropped, selected, savedIds, pinned])
 
   // Google's live traffic, as an optional layer under ours.
   const trafficRef = useRef(null)
@@ -1473,6 +1526,42 @@ function MapPage() {
                     ))}
                   </div>
 
+                  {alongRoute.length > 0 && (
+                    <div className="route-along" aria-label="Along this route">
+                      {alongRoute.map(({ kind, id, item }) =>
+                        kind === 'gem' ? (
+                          <button key={'g' + id} className="route-along-chip" onClick={() => handlePickGem(item)}>
+                            <GemBadge category={item.category} size={22} />
+                            <span className="route-along-text">
+                              <span className="route-along-name">{item.name}</span>
+                              <span className="route-along-sub">
+                                {item.distance_from_route_m <= ON_ROUTE_M
+                                  ? 'On your route'
+                                  : `~${detourMinutes(item.distance_from_route_m)} min detour`}
+                              </span>
+                            </span>
+                          </button>
+                        ) : (
+                          <button
+                            key={'r' + id}
+                            className="route-along-chip"
+                            onClick={() => {
+                              setDropped(null)
+                              setSelected({ type: 'incident', id })
+                              if (item.lat != null) mapRef.current?.panTo({ lat: item.lat, lng: item.lng })
+                            }}
+                          >
+                            <ReportBadge type={item.type} severity={item.severity} size={22} />
+                            <span className="route-along-text">
+                              <span className="route-along-name">{reportTypeLabel(item.type)}</span>
+                              <span className="route-along-sub">Severity {item.severity}/5 · on route</span>
+                            </span>
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  )}
+
                   {/* Phones only (CSS): expand / collapse the panel. */}
                   <button className="route-panel-more" onClick={() => setRouteDetails((v) => !v)} aria-expanded={routeDetails}>
                     {routeDetails
@@ -1636,7 +1725,10 @@ function MapPage() {
                       : position
                         ? ` · ${(distanceM(position, selectedGem) / 1000).toFixed(1)} km away`
                         : ''}
-                    {selectedGem.distance_from_route_m != null && ` · ${Math.round(selectedGem.distance_from_route_m)} m off your route`}
+                    {selectedGem.distance_from_route_m != null &&
+                      (selectedGem.distance_from_route_m <= ON_ROUTE_M
+                        ? ' · on your route'
+                        : ` · ~${detourMinutes(selectedGem.distance_from_route_m)} min detour`)}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
                     {[1, 2, 3, 4, 5].map((n) => (
@@ -1697,7 +1789,12 @@ function MapPage() {
                     {reportTypeLabel(selectedIncident.type)} — severity {selectedIncident.severity}/5
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 4 }}>
-                    {(selectedIncident.distance_m / 1000).toFixed(1)} km away
+                    {selectedIncident.distance_m != null
+                      ? `${(selectedIncident.distance_m / 1000).toFixed(1)} km away`
+                      : position
+                        ? `${(distanceM(position, selectedIncident) / 1000).toFixed(1)} km away`
+                        : ''}
+                    {routeReportIds.has(selectedIncident.id) && ' · on your route'}
                     {selectedIncident.description ? ` · ${selectedIncident.description}` : ''}
                   </div>
                 </div>

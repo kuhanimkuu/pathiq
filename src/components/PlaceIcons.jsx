@@ -40,11 +40,13 @@ export function GemGlyph({ category, size = 14 }) {
 // whose tip is the location; reports are diamonds centred on it, so the two
 // can't be confused at a glance.
 
-export function GemPin({ category, onRoute = false, saved = false, selected = false }) {
+// onRoute: along the planned route (glows). dimmed: a route is planned and
+// this isn't on it (fades back).
+export function GemPin({ category, onRoute = false, dimmed = false, saved = false, selected = false }) {
   const { color, Icon } = gemStyle(category)
   return (
     <span
-      className={'pin-gem' + (onRoute ? ' on-route' : '') + (selected ? ' selected' : '')}
+      className={'pin-gem' + (onRoute ? ' on-route' : '') + (dimmed ? ' dimmed' : '') + (selected ? ' selected' : '')}
       style={{ '--c': color }}
     >
       <span className="pin-gem-head">
@@ -59,11 +61,11 @@ export function GemPin({ category, onRoute = false, saved = false, selected = fa
   )
 }
 
-export function ReportPin({ type, severity, onRoute = false, selected = false }) {
+export function ReportPin({ type, severity, onRoute = false, dimmed = false, selected = false }) {
   const { Icon } = reportStyle(type)
   return (
     <span
-      className={'pin-report' + (onRoute ? ' on-route' : '') + (selected ? ' selected' : '')}
+      className={'pin-report' + (onRoute ? ' on-route' : '') + (dimmed ? ' dimmed' : '') + (selected ? ' selected' : '')}
       style={{ '--c': severityColor(severity) }}
     >
       <span className="pin-report-head">

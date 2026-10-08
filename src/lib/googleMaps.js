@@ -1,4 +1,5 @@
-import { mapStyles, currentTheme } from './mapStyle'
+import { mapStyles } from './mapStyle'
+import { currentTheme, onThemeChange } from './theme'
 
 // Loads the Google Maps JavaScript API once, on demand. The key is a browser
 // key (VITE_GOOGLE_MAPS_API_KEY) and is visible to anyone, so it must be
@@ -59,16 +60,25 @@ export function loadGoogleMaps() {
 }
 
 // A map in PathIQ's own style (src/lib/mapStyle.js), for the current theme.
+const mapBackground = (theme) => (theme === 'light' ? '#F4F7F6' : '#0A1512')
+
 export function createPathiqMap(api, element, options) {
-  return new api.Map(element, {
+  const map = new api.Map(element, {
     styles: mapStyles(currentTheme()),
-    backgroundColor: currentTheme() === 'light' ? '#F4F7F6' : '#0A1512',
+    backgroundColor: mapBackground(currentTheme()),
     disableDefaultUI: true,
     zoomControl: true,
     clickableIcons: false,
     gestureHandling: 'greedy',
     ...options,
   })
+  // Restyle when the theme changes (header switch, Profile, or the device
+  // going dark), until the map leaves the page.
+  const stop = onThemeChange((theme) => {
+    if (!element.isConnected) return stop()
+    map.setOptions({ styles: mapStyles(theme), backgroundColor: mapBackground(theme) })
+  })
+  return map
 }
 
 // Our markers: any DOM element, positioned on the map with its centre on the

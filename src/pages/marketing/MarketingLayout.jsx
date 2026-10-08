@@ -4,6 +4,7 @@ import { Menu, X } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
 import '../Landing.css'
 import Logo from '../../components/Logo'
+import ThemeToggle from '../../components/ThemeToggle'
 import GoogleButton from '../../components/GoogleButton'
 
 // Map-first, kept minimal for the casual driver — no Pricing or Developers
@@ -192,6 +193,7 @@ function MarketingLayout() {
             ))}
           </nav>
           <div className="nav-actions">
+            <ThemeToggle className="nav-theme" />
             <a href="/signin" className="link-plain nav-signin" onClick={openSignIn}>Sign in</a>
             <Link to="/app/map" className="btn btn-primary">Open the map</Link>
             <button

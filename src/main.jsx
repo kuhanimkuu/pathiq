@@ -3,13 +3,14 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './context/AuthProvider'
 import { UserProvider } from './context/UserProvider'
-import { getInitialTheme, applyTheme } from './lib/theme'
+import { getInitialTheme, applyTheme, followSystemTheme } from './lib/theme'
 import './lib/installPrompt' // starts listening for the browser's install prompt early
 import './index.css'
 import App from './App.jsx'
 
 // Applied before the first render so there's no flash of the wrong theme.
-applyTheme(getInitialTheme(), { persist: false })
+applyTheme(getInitialTheme())
+followSystemTheme()
 
 // Offline app shell (public/sw.js). Production only — in dev it would cache
 // Vite's unbundled modules and fight hot reload.

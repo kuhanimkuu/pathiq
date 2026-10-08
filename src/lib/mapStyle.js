@@ -59,7 +59,3 @@ const LIGHT = [
 export function mapStyles(theme) {
   return [...(theme === 'light' ? LIGHT : DARK), ...DECLUTTER]
 }
-
-export function currentTheme() {
-  return document.documentElement.classList.contains('light') ? 'light' : 'dark'
-}

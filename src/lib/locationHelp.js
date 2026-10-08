@@ -41,7 +41,7 @@ export function locationHelp(reason) {
     case 'timeout':
     default:
       return {
-        title: 'Still finding your location…',
+        title: 'Still finding your location',
         detail: 'GPS can take a moment, especially indoors. This updates by itself once your phone has a fix.',
       }
   }

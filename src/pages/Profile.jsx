@@ -4,7 +4,7 @@ import StatCard from '../components/StatCard'
 import { useUser } from '../context/useUser'
 import { useAuth } from '../context/useAuth'
 import { fetchMyScoutApplication, applyAsScout, MPESA_PHONE_PATTERN } from '../lib/scouts'
-import { getInitialTheme, applyTheme } from '../lib/theme'
+import { getThemePreference, setThemePreference, onThemeChange } from '../lib/theme'
 import { ensureNotificationPermission, notificationsSupported } from '../lib/driveAssist'
 import { loadAlertPrefs, saveAlertPrefs, ALERT_CATEGORIES, DETOUR_CHOICES_MIN } from '../lib/alertPrefs'
 import GoogleButton from '../components/GoogleButton'
@@ -18,7 +18,9 @@ function Profile() {
   const { user, refresh } = useUser()
   const { session, profile, isGuest, signOut, upgradeGuest, setNotificationsOn, linkGoogle, googleEnabled } = useAuth()
   const navigate = useNavigate()
-  const [darkMode, setDarkMode] = useState(() => getInitialTheme() === 'dark')
+  const [themePreference, setThemePref] = useState(getThemePreference)
+  // …and when the header switch changes it.
+  useEffect(() => onThemeChange(() => setThemePref(getThemePreference())), [])
   const [notifyNote, setNotifyNote] = useState('')
   const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
   const [installable, setInstallable] = useState(canInstall)
@@ -61,9 +63,9 @@ function Profile() {
     })
   }
 
-  function handleDarkModeChange(checked) {
-    setDarkMode(checked)
-    applyTheme(checked ? 'dark' : 'light')
+  function handleThemeChange(preference) {
+    setThemePreference(preference)
+    setThemePref(preference)
   }
   const [upgradeError, setUpgradeError] = useState('')
   const [upgrading, setUpgrading] = useState(false)
@@ -334,17 +336,25 @@ function Profile() {
         </div>
         {notifyNote && <p className="list-row-sub" style={{ marginTop: -4, marginBottom: 10 }}>{notifyNote}</p>}
 
-        <div className="toggle-row">
-          <span>Dark mode</span>
-          <label className="toggle-switch">
-            <input
-              type="checkbox"
-              checked={darkMode}
-              onChange={(e) => handleDarkModeChange(e.target.checked)}
-            />
-            <span className="toggle-slider"></span>
-          </label>
+        {/* Same choice as the switch in the header (components/ThemeToggle). */}
+        <div className="settings-label">Theme</div>
+        <div className="chip-row">
+          {[
+            ['system', 'Automatic'],
+            ['light', 'Light'],
+            ['dark', 'Dark'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              className={'chip' + (themePreference === value ? ' active' : '')}
+              aria-pressed={themePreference === value}
+              onClick={() => handleThemeChange(value)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
+        <p className="list-row-sub" style={{ marginTop: 6 }}>Automatic follows your phone or computer&apos;s setting.</p>
 
         <button className="auth-guest-btn" style={{ marginTop: 16 }} onClick={handleSignOut}>
           Sign out

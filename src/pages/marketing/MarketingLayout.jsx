@@ -220,6 +220,11 @@ function MarketingLayout() {
             >
               Sign in
             </a>
+            {/* On phones the header's theme button moves in here, to make room for the menu button. */}
+            <div className="nav-mobile-theme">
+              <span>Theme</span>
+              <ThemeToggle showLabel />
+            </div>
           </nav>
         )}
       </header>

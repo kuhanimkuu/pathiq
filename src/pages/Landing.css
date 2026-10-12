@@ -404,7 +404,9 @@ h2.center, p.section-sub.center { max-width: 640px; }
   border-top: 1px solid var(--border);
 }
 .nav-mobile a { padding: 12px 4px; font-size: 15px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
-.nav-mobile a:last-child { border-bottom: none; }
+.nav-mobile a:last-of-type { border-bottom: none; }
+.nav-mobile-theme { display: none; align-items: center; justify-content: space-between; padding: 12px 4px 0; border-top: 1px solid var(--border); font-size: 15px; color: var(--text-dim); }
+.nav-mobile-theme .theme-toggle { width: auto; padding: 0 12px; gap: 8px; }
 
 /* Legal pages */
 .legal { max-width: 760px; }
@@ -422,6 +424,9 @@ h2.center, p.section-sub.center { max-width: 640px; }
   .nav-links { display: none; }
   .nav-menu-btn { display: inline-flex; }
   .nav-mobile { display: flex; }
+  /* The alert badge joins the page flow above the copy, instead of floating over it. */
+  .hero-alert { position: static; width: fit-content; margin-top: 24px; }
+  .hero-alert + .hero-inner { padding-top: 16px; }
   .hero-inner, .conditions-inner, .scout-inner { grid-template-columns: 1fr; }
   .route-options, .conditions-grid, .platform-grid, .roadmap-grid { grid-template-columns: 1fr 1fr; }
   .gems-grid { grid-template-columns: 1fr 1fr; }
@@ -430,6 +435,9 @@ h2.center, p.section-sub.center { max-width: 640px; }
 @media (max-width: 600px) {
   .nav-inner { padding: 14px 16px; gap: 12px; }
   .nav-signin { display: none; }
+  .nav-actions { gap: 8px; }
+  .nav-actions .nav-theme { display: none; }
+  .nav-mobile-theme { display: flex; }
   .nav-actions .btn-primary { padding: 9px 14px; font-size: 13.5px; }
   .legal h1 { font-size: 28px; }
   .hero-copy h1 { font-size: 32px; }
@@ -449,4 +457,8 @@ h2.center, p.section-sub.center { max-width: 640px; }
   .route-options, .conditions-grid, .platform-grid, .roadmap-grid, .gems-grid { grid-template-columns: 1fr; }
   .footer-top { grid-template-columns: 1fr; }
   .earnings-grid { grid-template-columns: 1fr; }
+}
+/* Narrow phones: "PathIQ" alone, so the menu button stays on screen. */
+@media (max-width: 380px) {
+  .nav .brand .logo-sub { display: none; }
 }

@@ -19,7 +19,7 @@ export default function HeroSection() {
             <span className="dot dot-green" /> Works anywhere &middot; Built in Nairobi
           </div>
           <h1>
-            Navigate with the road intelligence <span className="accent">Google Maps</span> doesn&apos;t have.
+            Navigate with the road intelligence <span className="accent">other maps</span> don&apos;t have.
           </h1>
           <p className="hero-sub">
             PathIQ Navigators combines real road conditions, traffic intelligence and community-verified places to

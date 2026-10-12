@@ -2,7 +2,7 @@
 
 A snapshot of where things stand, for picking this up again on this machine or another. For the product vision and longer-term plan, see `description.md`, `features.md`, `architecture.md` and `design-brief.md`. This file is the "where are we right now" summary.
 
-Last updated: 2026-09-27.
+Last updated: 2026-10-12.
 
 ---
 
@@ -16,6 +16,17 @@ The MVP in `features.md` is built end to end against the hosted Supabase project
 - **Platform:** installs as a phone app and opens offline, Privacy and Terms pages, locked-down RLS, and rate limits.
 
 What's left is mostly **decisions and accounts only David's team can set up** (see "Before launch"), plus the business/developer tiers, which aren't designed yet.
+
+## Maps app restructure and road data (2026-10-12)
+
+PathIQ is moving from "a navigation app" to "a maps app with navigation in it":
+- **The map is the app's home** (`/app`). The Home tab is gone: IQ Score moved to Profile, the active-trip card is a "Resume" card on the map, and nearby gems/reports were already on the map. Tabs: Explore, History, Gems, Profile. Old `/app/map?...` links redirect with their query.
+- **Search shows a place, Directions plans the route.** Picking a search result opens its sheet; gem sheets have Directions as the main button.
+- **`MapPage.jsx` split up** (2,077 → ~1,100 lines) into `src/pages/map/`: `useTurnByTurn` (navigation mode: voice, rerouting, alerts, trips), `useGooglePlaces`, `useMapMarkers`, `useRouteOverlays`, `RoutePanel`, `FeatureSheet`, `MapControls`, `NavAlerts`.
+- **Opt-in road data** (migration `20261012000000_location_contributions.sql`, `src/lib/locationContribution.js`, Profile → "Help improve road data", privacy policy `#road-data`). Off by default; consent time set by the server; samples have no user id (daily random device token); first/last 200 m of each trip never sent; nightly pg_cron roll-up into `road_speed_daily` then raw rows deleted (7-day backstop); `road_speeds_near` only returns cells with 5+ device-days. Security tests added to `npm run test:security`.
+  - **Needs:** `supabase db push`, then run `npm run test:security` (not run yet; Docker wasn't up locally). Check pg_cron got scheduled (`select * from cron.job`).
+  - **Before relying on it:** lawyer review of the new privacy section; ODPC registration and a DPIA under the Kenya DPA (location tracking).
+- **Hosted `routes` function returned 500 "Could not read road reports"** during testing on 2026-10-12 (not caused by these changes; client code for routes is unchanged). Needs a look at the function logs.
 
 ## Before launch (needs a person, not code)
 

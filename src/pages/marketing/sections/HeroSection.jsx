@@ -9,7 +9,7 @@ export default function HeroSection() {
   return (
     <section className="hero">
       {alertCount > 0 && (
-        <Link to="/app/map" className="hero-alert">
+        <Link to="/app" className="hero-alert">
           <span className="dot dot-amber" /> {alertCount} road alert{alertCount === 1 ? '' : 's'} in Nairobi
         </Link>
       )}
@@ -26,7 +26,7 @@ export default function HeroSection() {
             help you choose better routes and discover more.
           </p>
           <div className="hero-ctas">
-            <Link to="/app/map" className="btn btn-primary btn-lg">
+            <Link to="/app" className="btn btn-primary btn-lg">
               <Plus size={16} strokeWidth={2.5} /> Open the map
             </Link>
             <Link to="/scout-program" className="btn btn-outline btn-lg">Become a Scout</Link>

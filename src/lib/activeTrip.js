@@ -1,6 +1,6 @@
-// The trip being navigated right now, so Home can show it and offer to resume.
+// The trip being navigated right now, so the map can offer to resume it.
 // Per-device only (localStorage): an in-progress drive belongs to the phone
-// doing the driving, and losing it just means the Home card goes empty.
+// doing the driving, and losing it just means there's nothing to resume.
 
 const STORAGE_KEY = 'pathiq-active-trip'
 const STALE_AFTER_MS = 12 * 60 * 60 * 1000 // a "trip" older than this was abandoned
@@ -21,7 +21,7 @@ export function saveActiveTrip(trip) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...trip, updatedAt: Date.now() }))
   } catch {
-    // storage unavailable — navigation still works, Home just won't show it
+    // storage unavailable — navigation still works, it just can't be resumed
   }
 }
 
@@ -44,5 +44,5 @@ export function resumeUrl(trip) {
   if (trip.stops?.length) {
     params.set('stops', JSON.stringify(trip.stops.map((s) => ({ lat: +s.lat.toFixed(5), lng: +s.lng.toFixed(5), name: s.name }))))
   }
-  return `/app/map?${params}`
+  return `/app?${params}`
 }

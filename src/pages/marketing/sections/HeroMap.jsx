@@ -94,7 +94,7 @@ export default function HeroMap({ onData }) {
       el.className = 'marker-host'
       el.setAttribute('aria-label', label)
       el.title = label
-      el.addEventListener('click', () => navigate('/app/map'))
+      el.addEventListener('click', () => navigate('/app'))
       const root = createRoot(el)
       root.render(pin)
       roots.push(root)
@@ -118,12 +118,12 @@ export default function HeroMap({ onData }) {
       <DrawnMap hidden={ready} />
       <div ref={divRef} className={'hero-map-live' + (ready ? ' ready' : '')} />
 
-      <Link to="/app/map" className="hero-map-cta">
+      <Link to="/app" className="hero-map-cta">
         Open the live map &rarr;
       </Link>
 
       {data && (
-        <Link to="/app/map" className="hero-route-card hero-live-card">
+        <Link to="/app" className="hero-route-card hero-live-card">
           <div className="hero-route-card-label">
             <span className="dot dot-green" /> Live from Nairobi
           </div>

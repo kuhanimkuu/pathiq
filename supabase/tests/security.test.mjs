@@ -419,6 +419,52 @@ try {
   r = await req(C.token, 'GET', `/rest/v1/admin_audit_log?target_id=eq.${A.id}&action=in.(suspend,unsuspend)&select=action&order=id`)
   ok('suspensions are logged', r.json?.map((e) => e.action).join() === 'suspend,unsuspend', JSON.stringify(r.json))
 
+  // ── Location contributions (opt-in, anonymous) ──
+  const D = await guest(); created.users.push(D.id)
+  const token = crypto.randomUUID()
+  const sample = (over = {}) => ({ lat: -1.29, lng: 36.82, t: new Date().toISOString(), speed: 12.5, heading: 90, ...over })
+  for (const t of ['location_samples', 'road_speed_daily']) {
+    r = await req(D.token, 'GET', `/rest/v1/${t}?select=*&limit=1`)
+    ok(`users cannot read ${t}`, r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status}`)
+    r = await req(D.token, 'POST', `/rest/v1/${t}`, {})
+    ok(`users cannot insert into ${t} directly`, r.status >= 400, `${r.status}`)
+  }
+  r = await req(D.token, 'PATCH', `/rest/v1/profiles?id=eq.${D.id}`, { location_sharing_at: new Date(0).toISOString() })
+  ok('consent time cannot be written directly', r.status >= 400, `${r.status}`)
+  r = await req(D.token, 'POST', '/rest/v1/rpc/contribute_location_samples', { p_token: token, p_samples: [sample()] })
+  ok('cannot contribute with sharing off', r.status >= 400, `${r.status} ${r.text.slice(0, 80)}`)
+  r = await req(null, 'POST', '/rest/v1/rpc/set_location_sharing', { p_on: true })
+  ok('anon cannot turn sharing on', r.status >= 400, `${r.status}`)
+  r = await req(D.token, 'POST', '/rest/v1/rpc/set_location_sharing', { p_on: true })
+  ok('can turn sharing on (server records when)', r.status === 200 && Math.abs(new Date(r.json) - Date.now()) < 60_000, `${r.status} ${r.text.slice(0, 80)}`)
+  r = await req(D.token, 'POST', '/rest/v1/rpc/contribute_location_samples', {
+    p_token: token,
+    p_samples: [sample(), sample({ lat: 95 }), sample({ t: '2020-01-01T00:00:00Z' }), sample({ speed: 500 }), 'junk'],
+  })
+  ok('contributes only valid samples', r.status === 200 && r.json === 3, `${r.status} ${r.text.slice(0, 80)}`)
+  const stored = await svc('GET', `/rest/v1/location_samples?token=eq.${token}&select=*`)
+  ok('samples store no user id', stored.json?.length === 3 && stored.json.every((s) => !Object.values(s).includes(D.id)), JSON.stringify(stored.json?.[0]))
+  ok('an impossible speed is dropped, not stored', stored.json?.some((s) => s.speed_mps == null), JSON.stringify(stored.json?.map((s) => s.speed_mps)))
+  r = await req(D.token, 'POST', '/rest/v1/rpc/contribute_location_samples', { p_token: token, p_samples: Array.from({ length: 201 }, () => sample()) })
+  ok('at most 200 samples per call', r.status >= 400, `${r.status}`)
+  r = await req(D.token, 'POST', '/rest/v1/rpc/rollup_location_samples', {})
+  ok('clients cannot run the roll-up', r.status >= 400, `${r.status}`)
+  r = await req(null, 'POST', '/rest/v1/rpc/road_speeds_near', { p_lat: -1.29, p_lng: 36.82 })
+  ok('road speeds are public but only for 5+ contributors', r.status === 200 && Array.isArray(r.json) && r.json.every((c) => c.contributors >= 5), `${r.status} ${r.text.slice(0, 80)}`)
+  r = await req(B.token, 'POST', '/rest/v1/rpc/delete_location_samples', { p_tokens: [crypto.randomUUID()] })
+  ok('deleting needs the token', r.status === 200 && r.json === 0, `${r.status} ${r.text.slice(0, 80)}`)
+  r = await req(D.token, 'POST', '/rest/v1/rpc/delete_location_samples', { p_tokens: [token] })
+  ok('the device can delete what it sent', r.status === 200 && r.json === 3, `${r.status} ${r.text.slice(0, 80)}`)
+  r = await req(D.token, 'POST', '/rest/v1/rpc/set_location_sharing', { p_on: false })
+  ok('can turn sharing off', r.status === 200 && r.json === null, `${r.status} ${r.text.slice(0, 80)}`)
+  let locLast
+  await req(D.token, 'POST', '/rest/v1/rpc/set_location_sharing', { p_on: true })
+  for (let i = 0; i < 121; i++) {
+    locLast = await req(D.token, 'POST', '/rest/v1/rpc/contribute_location_samples', { p_token: token, p_samples: [] })
+  }
+  ok('location uploads are rate-limited (121st in an hour → 429)', locLast.status === 429, `${locLast.status} ${locLast.text.slice(0, 80)}`)
+  await svc('DELETE', `/rest/v1/location_samples?token=eq.${token}`)
+
   // ── rate limits ──
   let last
   for (let i = 0; i < 31; i++) {

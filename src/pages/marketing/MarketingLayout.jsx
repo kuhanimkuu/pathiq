@@ -12,7 +12,7 @@ import GoogleButton from '../../components/GoogleButton'
 // Conditions and Route Intelligence live inside /map now, not as their own
 // items — see the "pathiq-tiered-user-access" memory for the full reasoning.
 const navLinks = [
-  { to: '/app/map', label: 'Map' },
+  { to: '/app', label: 'Map' },
   { to: '/hidden-gems', label: 'Hidden Gems' },
   { to: '/scout-program', label: 'Scout Program' },
 ]
@@ -195,7 +195,7 @@ function MarketingLayout() {
           <div className="nav-actions">
             <ThemeToggle className="nav-theme" />
             <a href="/signin" className="link-plain nav-signin" onClick={openSignIn}>Sign in</a>
-            <Link to="/app/map" className="btn btn-primary">Open the map</Link>
+            <Link to="/app" className="btn btn-primary">Open the map</Link>
             <button
               className="nav-menu-btn"
               onClick={() => setMenuPath(menuOpen ? null : location.pathname)}
@@ -243,7 +243,7 @@ function MarketingLayout() {
 
           <div className="footer-col">
             <div className="footer-heading">Product</div>
-            <Link to="/app/map">Live Map</Link>
+            <Link to="/app">Live Map</Link>
             <Link to="/map">Road conditions &amp; routing</Link>
             <Link to="/hidden-gems">Hidden Gems</Link>
             <Link to="/app/profile">Mobile App</Link>

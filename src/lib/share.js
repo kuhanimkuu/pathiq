@@ -6,7 +6,7 @@
 export function locationLink({ lat, lng, name }) {
   const params = new URLSearchParams({ at: `${lat.toFixed(6)},${lng.toFixed(6)}` })
   if (name) params.set('name', name)
-  return `${window.location.origin}/app/map?${params}`
+  return `${window.location.origin}/app?${params}`
 }
 
 // Resolves to 'shared', 'copied' or 'cancelled'. `title` overrides the

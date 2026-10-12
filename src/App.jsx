@@ -10,7 +10,6 @@ import ScoutProgramPage from './pages/marketing/ScoutProgramPage'
 import DevelopersPage from './pages/marketing/DevelopersPage'
 import PricingPage from './pages/marketing/PricingPage'
 import { PrivacyPage, TermsPage } from './pages/marketing/LegalPages'
-import Home from './pages/Home'
 import MapPage from './pages/MapPage'
 import HistoryPage from './pages/HistoryPage'
 import Gems from './pages/Gems'
@@ -68,7 +67,14 @@ function useOnline() {
 function RoutesRedirect() {
   const { search } = useLocation()
   const params = new URLSearchParams(search)
-  return <Navigate to={params.get('to') ? `/app/map${search}` : '/app/history'} replace />
+  return <Navigate to={params.get('to') ? `/app${search}` : '/app/history'} replace />
+}
+
+// The map is the app's home now (/app). Old /app/map links, including shared
+// locations and "resume" links, land there with their query intact.
+function MapRedirect() {
+  const { search } = useLocation()
+  return <Navigate to={`/app${search}`} replace />
 }
 
 function AppShell() {
@@ -98,8 +104,8 @@ function AppShell() {
           </div>
         )}
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/map" element={<MapPage />} />
+          <Route path="/" element={<MapPage />} />
+          <Route path="/map" element={<MapRedirect />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/routes" element={<RoutesRedirect />} />
           <Route path="/gems" element={<Gems />} />

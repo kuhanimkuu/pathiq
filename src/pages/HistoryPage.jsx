@@ -32,7 +32,7 @@ function groupByDay(trips) {
 
 function mapUrl(trip) {
   const params = new URLSearchParams({ to: `${trip.lat.toFixed(5)},${trip.lng.toFixed(5)}`, name: trip.destination_name || 'Dropped pin' })
-  return `/app/map?${params}`
+  return `/app?${params}`
 }
 
 // Past trips, newest first: where you went, which route, how it went. Route
@@ -124,7 +124,7 @@ function HistoryPage() {
       {!loading && trips.length === 0 && (
         <div className="section-card">
           <p className="list-row-sub" style={{ margin: 0 }}>
-            No trips yet. Plan a route on the <Link to="/app/map">map</Link> and tap Start. Your trips will show up here.
+            No trips yet. Plan a route on the <Link to="/app">map</Link> and tap Start. Your trips will show up here.
           </p>
         </div>
       )}

@@ -780,7 +780,9 @@ html.light .google-btn:hover:not(:disabled) { background: #F8F9FA; }
    ══════════════════════════════════ */
 .map-page {
   position: relative;
-  height: 100%;
+  /* full bleed: the negative margins undo .app-content's padding, so the
+     height has to add it back or a strip is left under the map */
+  height: calc(100% + 32px);
   min-height: 480px;
   margin: -16px;
   overflow: hidden;
@@ -788,7 +790,7 @@ html.light .google-btn:hover:not(:disabled) { background: #F8F9FA; }
 }
 
 @media (min-width: 900px) {
-  .map-page { margin: -32px -40px; border-radius: 0; }
+  .map-page { margin: -32px -40px; height: calc(100% + 64px); border-radius: 0; }
 }
 
 .map-canvas {
@@ -2254,3 +2256,42 @@ a.map-route-here-btn { text-decoration: none; }
 .app-content > .auth-notice { max-width: none; }
 .auth-notice button { font-size: 20px; line-height: 1; color: inherit; background: none; border: none; cursor: pointer; }
 .landing-auth-notice { margin: 12px auto; max-width: 1100px; width: calc(100% - 32px); }
+
+/* ── Resume a trip left mid-drive (map home) ── */
+.map-resume-card {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.25);
+}
+.map-resume-card .map-route-start { margin-top: 0; flex-shrink: 0; }
+.map-resume-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.map-resume-sub { font-size: 12px; color: var(--muted-foreground); margin-top: 2px; }
+.map-resume-dismiss {
+  border: none;
+  background: none;
+  color: var(--muted-foreground);
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px;
+  cursor: pointer;
+}
+@media (min-width: 900px) {
+  .map-resume-card { right: auto; width: 380px; }
+}

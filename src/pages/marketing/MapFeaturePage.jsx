@@ -14,7 +14,7 @@ export default function MapFeaturePage() {
       <RoadConditionsSection />
       <RouteIntelligenceSection />
       <section className="section center" style={{ paddingTop: 0 }}>
-        <Link to="/app/map" className="btn btn-primary btn-lg">
+        <Link to="/app" className="btn btn-primary btn-lg">
           Open the live map
         </Link>
       </section>

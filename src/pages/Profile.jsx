@@ -9,6 +9,7 @@ import { ensureNotificationPermission, notificationsSupported } from '../lib/dri
 import { loadAlertPrefs, saveAlertPrefs, ALERT_CATEGORIES, DETOUR_CHOICES_MIN } from '../lib/alertPrefs'
 import GoogleButton from '../components/GoogleButton'
 import { canInstall, isInstalled, isIos, onInstallChange, promptInstall } from '../lib/installPrompt'
+import { setLocationSharing, deleteMyLocationSamples } from '../lib/locationContribution'
 
 const CATEGORY_LABEL = {
   attractions: 'Attractions', hotels: 'Hotels', food: 'Food', scenic: 'Scenic', fuel: 'Fuel', facilities: 'Facilities',
@@ -16,7 +17,8 @@ const CATEGORY_LABEL = {
 
 function Profile() {
   const { user, refresh } = useUser()
-  const { session, profile, isGuest, signOut, upgradeGuest, setNotificationsOn, linkGoogle, googleEnabled } = useAuth()
+  const { session, profile, isGuest, signOut, upgradeGuest, setNotificationsOn, linkGoogle, googleEnabled, refreshProfile } =
+    useAuth()
   const navigate = useNavigate()
   const [themePreference, setThemePref] = useState(getThemePreference)
   // …and when the header switch changes it.
@@ -45,6 +47,39 @@ function Profile() {
       await setNotificationsOn(on)
     } catch (err) {
       setNotifyNote(err.message)
+    }
+  }
+
+  // Opt-in road data (lib/locationContribution). Consent is recorded by the
+  // server, so the switch reflects the profile, not local state.
+  const [sharingNote, setSharingNote] = useState('')
+  const [sharingBusy, setSharingBusy] = useState(false)
+  async function handleSharingChange(on) {
+    setSharingNote('')
+    setSharingBusy(true)
+    try {
+      await setLocationSharing(on)
+      await refreshProfile()
+    } catch (err) {
+      setSharingNote(err.message)
+    } finally {
+      setSharingBusy(false)
+    }
+  }
+  async function handleDeleteShared() {
+    setSharingNote('')
+    setSharingBusy(true)
+    try {
+      const removed = await deleteMyLocationSamples()
+      setSharingNote(
+        removed > 0
+          ? `Deleted ${removed} location point${removed === 1 ? '' : 's'} sent from this device.`
+          : 'Nothing from this device is waiting to be processed.',
+      )
+    } catch (err) {
+      setSharingNote(err.message)
+    } finally {
+      setSharingBusy(false)
     }
   }
 
@@ -147,6 +182,20 @@ function Profile() {
           <span className={`role-badge role-${isGuest ? 'guest' : role}`}>
             {isGuest ? 'Guest' : role}
           </span>
+        </div>
+      </div>
+
+      <div className="iq-score-card">
+        <div className="iq-ring">
+          <span className="iq-number">{user.iqScore ?? '–'}</span>
+        </div>
+        <div>
+          <div className="iq-label">Your IQ Score</div>
+          <div className="iq-sub">
+            {user.iqScore == null
+              ? 'Finish a trip with navigation to get your score.'
+              : 'Last 30 days: road quality of the routes you chose, trips completed, and staying on route.'}
+          </div>
         </div>
       </div>
 
@@ -294,6 +343,33 @@ function Profile() {
             </p>
           </>
         )}
+      </div>
+
+      <div className="section-card">
+        <div className="section-title">Help improve road data</div>
+        <div className="toggle-row">
+          <span>Share anonymous speeds while I navigate</span>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={profile?.location_sharing_at != null}
+              disabled={sharingBusy}
+              onChange={(e) => handleSharingChange(e.target.checked)}
+              aria-label="Share anonymous speeds while navigating"
+            />
+            <span className="toggle-slider"></span>
+          </label>
+        </div>
+        <p className="list-row-sub" style={{ marginTop: 0 }}>
+          Off unless you turn it on. While you navigate, PathIQ sends a thinned-out trail of where and how fast you
+          drove, without your account, so we can show real road speeds. The first and last 200 m of every trip never
+          leave your phone. Raw points are deleted within a day and only kept as road statistics.{' '}
+          <Link to="/privacy#road-data">How this works</Link>
+        </p>
+        <button className="auth-guest-btn" style={{ marginTop: 10 }} disabled={sharingBusy} onClick={handleDeleteShared}>
+          Delete what this device has sent
+        </button>
+        {sharingNote && <p className="list-row-sub" style={{ marginTop: 8 }}>{sharingNote}</p>}
       </div>
 
       {!isInstalled() && (

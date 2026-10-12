@@ -6,7 +6,7 @@
 // draft, not reviewed by a lawyer: have them reviewed against Kenya's Data
 // Protection Act 2019 before launch, and fill in CONTACT.
 
-const LAST_UPDATED = '25 September 2026'
+const LAST_UPDATED = '12 October 2026'
 // Set before launch: the email or address people use for privacy requests.
 const CONTACT = null
 
@@ -47,13 +47,49 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Navigating.</strong> Your live position is used on your device to follow the route and give
-          directions. <strong>We do not record your GPS trail.</strong>
+          directions. <strong>We do not record your GPS trail</strong> unless you turn on road-data sharing
+          (below).
         </li>
       </ul>
       <p>
         If you turn location off, the map still works around central Nairobi, but navigation needs your live
         location.
       </p>
+
+      <h2 id="road-data">Helping improve road data (optional)</h2>
+      <p>
+        In Profile you can choose to share anonymous speeds while you navigate. It is off unless you turn it on, and
+        you can turn it off at any time. When it&apos;s on:
+      </p>
+      <ul>
+        <li>
+          <strong>What&apos;s sent:</strong> while navigating only, a point every few seconds (position to about 1
+          metre, time, speed and direction). Nothing is sent when you aren&apos;t navigating, or when PathIQ is
+          closed.
+        </li>
+        <li>
+          <strong>Not linked to you:</strong> points carry no account, name or email, only a random code your device
+          makes each day and then replaces. We record when you turned sharing on, as a record of your consent.
+        </li>
+        <li>
+          <strong>Your start and end stay private:</strong> points within 200 metres of where a trip starts or ends
+          are removed on your phone and never sent.
+        </li>
+        <li>
+          <strong>How long:</strong> each night, the previous day&apos;s points are combined into road statistics (the
+          typical speed on a stretch of road at a time of week) and deleted. Nothing raw is kept longer than 7 days.
+          Statistics are only used for a stretch where at least 5 different contributions were made, so no one
+          trip can be picked out.
+        </li>
+        <li>
+          <strong>What it&apos;s used for:</strong> showing traffic and road speeds in PathIQ, and in road data we
+          may offer to businesses and developers. That data is the statistics only, never trips or points.
+        </li>
+        <li>
+          <strong>Deleting:</strong> &ldquo;Delete what this device has sent&rdquo; in Profile removes the points not
+          yet combined. Statistics already made are anonymous and can&apos;t be traced back to remove.
+        </li>
+      </ul>
 
       <h2>What we store</h2>
       <ul>
@@ -105,8 +141,9 @@ export function PrivacyPage() {
       <h2>Storage on your device</h2>
       <p>
         We don&apos;t use advertising or tracking cookies. The app keeps a few settings in your browser&apos;s local
-        storage: your sign-in session, light or dark theme, voice mute, gem-alert preferences, and the trip
-        you&apos;re currently navigating (so you can resume it). Clearing your browser data removes them.
+        storage: your sign-in session, light or dark theme, voice mute, gem-alert preferences, the trip
+        you&apos;re currently navigating (so you can resume it), and, if you share road data, the last week&apos;s
+        daily codes (so you can delete what was sent). Clearing your browser data removes them.
       </p>
 
       <h2>Notifications</h2>

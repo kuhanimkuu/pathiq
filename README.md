@@ -58,7 +58,9 @@ Drivers can opt in (Profile → "Help improve road data") to share anonymous spe
 
 ```
 src/
-  pages/            app screens (/app/*) and marketing pages (pages/marketing)
+  pages/            app screens (/app/*, incl. admin/ with the blog editor and
+                    messages inbox) and marketing pages (pages/marketing,
+                    company/ = About, Blog, Careers, Press, Contact)
   components/       shared UI (NavigationHud, TabBar, …)
   lib/              data access and logic: routePlanning, navigation, trips,
                     placeSearch, googleMaps, alertPrefs, driveAssist, …

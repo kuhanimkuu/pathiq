@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 // Privacy Policy and Terms of Use. features.md: legal pages are needed before
 // launch because the app collects location data.
 //
@@ -6,12 +8,12 @@
 // draft, not reviewed by a lawyer: have them reviewed against Kenya's Data
 // Protection Act 2019 before launch, and fill in CONTACT.
 
-const LAST_UPDATED = '13 October 2026'
+const LAST_UPDATED = '14 October 2026'
 // Set before launch: the email or address people use for privacy requests.
 const CONTACT = null
 
 function Contact() {
-  return CONTACT ? <a href={`mailto:${CONTACT}`}>{CONTACT}</a> : <>the PathIQ team (contact details coming before launch)</>
+  return CONTACT ? <a href={`mailto:${CONTACT}`}>{CONTACT}</a> : <>us through our <Link to="/contact?topic=privacy">contact form</Link></>
 }
 
 function LegalShell({ title, children }) {
@@ -125,6 +127,15 @@ export function PrivacyPage() {
       <p>
         What you type into the map&apos;s search box is sent to Google Places to suggest destinations. We don&apos;t
         store your searches.
+      </p>
+
+      <h2 id="contact">Messages you send us</h2>
+      <p>
+        When you use the <Link to="/contact">contact form</Link>, we store your name, email address, topic and message
+        (and your account, if you&apos;re signed in) so we can reply. Only PathIQ staff can read them. A message is
+        deleted a year after we&apos;ve dealt with it. To stop the form being misused, we count messages per
+        connection using a scrambled form of your IP address, kept for about a day and never stored with your
+        message.
       </p>
 
       <h2>Who else processes your data</h2>

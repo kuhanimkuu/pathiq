@@ -1,5 +1,6 @@
 // Security checks against a real Supabase project: RLS on every table, the
-// trip/IQ-score rules, Scout photo rules, and the write rate limits.
+// trip/IQ-score rules, Scout photo rules, the blog and contact inbox, road
+// data, and the write rate limits.
 //
 //   SUPABASE_URL=... SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=... npm run test:security
 //
@@ -33,7 +34,7 @@ const passwordUser = async (email) => {
 }
 const guest = async () => { const r = await req(null, 'POST', '/auth/v1/signup', {}); return { token: r.json.access_token, id: r.json.user.id } }
 const point = 'SRID=4326;POINT(36.82 -1.29)'
-const created = { users: [], photos: [], reports: [], gems: [] }
+const created = { users: [], photos: [], reports: [], gems: [], posts: [] }
 
 try {
   const A = await guest(), B = await guest(); created.users.push(A.id, B.id)
@@ -419,6 +420,65 @@ try {
   r = await req(C.token, 'GET', `/rest/v1/admin_audit_log?target_id=eq.${A.id}&action=in.(suspend,unsuspend)&select=action&order=id`)
   ok('suspensions are logged', r.json?.map((e) => e.action).join() === 'suspend,unsuspend', JSON.stringify(r.json))
 
+  // ── Blog and contact messages (C is a fresh admin, B an admin without a recent password) ──
+  const slug = (s) => `rls-${s}-${Date.now()}`
+  r = await req(A.token, 'POST', '/rest/v1/blog_posts', { slug: slug('a'), title: 'Not an admin' })
+  ok('non-admins cannot write blog posts', r.status >= 400, `${r.status}`)
+  r = await req(B.token, 'POST', '/rest/v1/blog_posts', { slug: slug('b'), title: 'Stale admin' })
+  ok('admins without a recent password cannot write blog posts', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/blog_posts', { slug: slug('draft'), title: 'Draft', body: 'Secret draft' })
+  const draft = r.json?.[0]; if (draft) created.posts.push(draft.id)
+  ok('admins can write a draft', r.status === 201 && draft?.author_id === C.id && draft?.published_at == null, `${r.status} ${r.text.slice(0, 120)}`)
+  r = await req(C.token, 'POST', '/rest/v1/blog_posts', { slug: slug('live'), title: 'Live', body: 'Hello', status: 'published' })
+  const live = r.json?.[0]; if (live) created.posts.push(live.id)
+  ok('publishing stamps published_at', live?.published_at != null, r.text.slice(0, 120))
+  r = await req(C.token, 'POST', '/rest/v1/blog_posts', { slug: slug('later'), title: 'Later', status: 'published', published_at: new Date(Date.now() + 86400e3).toISOString() })
+  const later = r.json?.[0]; if (later) created.posts.push(later.id)
+  r = await req(null, 'GET', `/rest/v1/blog_posts?id=in.(${created.posts.join(',')})&select=id`)
+  ok('visitors see published posts only (not drafts or scheduled)', r.json?.length === 1 && r.json[0].id === live?.id, JSON.stringify(r.json))
+  r = await req(A.token, 'GET', `/rest/v1/blog_posts?id=in.(${created.posts.join(',')})&select=id`)
+  ok('signed-in non-admins see published posts only', r.json?.length === 1, JSON.stringify(r.json))
+  r = await req(A.token, 'PATCH', `/rest/v1/blog_posts?id=eq.${live?.id}`, { title: 'Hacked' })
+  ok('non-admins cannot edit posts', Array.isArray(r.json) ? r.json.length === 0 : r.status >= 400, `${r.status} ${r.text.slice(0, 80)}`)
+  r = await req(A.token, 'DELETE', `/rest/v1/blog_posts?id=eq.${live?.id}`)
+  ok('non-admins cannot delete posts', Array.isArray(r.json) ? r.json.length === 0 : r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/blog_posts', { slug: 'Not A Slug!', title: 'Bad' })
+  ok('slugs must be lowercase words and hyphens', r.status >= 400, `${r.status}`)
+  r = await req(A.token, 'POST', '/storage/v1/object/blog-images/rls-test.png', new Uint8Array([137, 80, 78, 71]), { 'Content-Type': 'image/png' })
+  ok('non-admins cannot upload blog images', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'POST', '/storage/v1/object/blog-images/rls-test.html', '<script></script>', { 'Content-Type': 'text/html' })
+  ok('blog images must be images', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'GET', `/rest/v1/admin_audit_log?target_table=eq.blog_posts&target_id=eq.${live?.id}&select=action`)
+  ok('blog writes are audited', r.json?.some((e) => e.action === 'create'), JSON.stringify(r.json))
+  for (const id of created.posts) await svc('DELETE', `/rest/v1/blog_posts?id=eq.${id}`)
+
+  const contact = (over = {}) => req(null, 'POST', '/rest/v1/rpc/submit_contact_message', { p_name: 'RLS Test', p_email: `rls-${Date.now()}@pathiq.test`, p_topic: 'general', p_message: 'Security test message.', ...over })
+  r = await contact()
+  ok('visitors can send a contact message', r.status === 204 || r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+  r = await contact({ p_topic: 'spam' })
+  ok('contact topic must be one of the list', r.status >= 400, `${r.status}`)
+  r = await contact({ p_email: 'not-an-email' })
+  ok('contact email must look like an email', r.status >= 400, `${r.status}`)
+  r = await req(null, 'POST', '/rest/v1/contact_messages', { name: 'x', email: 'x@y.co', topic: 'general', message: 'direct insert' })
+  ok('contact messages cannot be inserted directly', r.status >= 400, `${r.status}`)
+  for (const [who, token] of [['visitors', null], ['non-admins', A.token], ['admins without a recent password', B.token]]) {
+    r = await req(token, 'GET', '/rest/v1/contact_messages?select=id&limit=1')
+    ok(`${who} cannot read contact messages`, r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status}`)
+  }
+  r = await req(C.token, 'GET', '/rest/v1/contact_messages?name=eq.RLS%20Test&select=id,status')
+  const msg = r.json?.[0]
+  ok('admins can read contact messages', msg?.status === 'new', r.text.slice(0, 120))
+  r = await req(C.token, 'PATCH', `/rest/v1/contact_messages?id=eq.${msg?.id}`, { message: 'rewritten' })
+  ok('admins cannot rewrite a message', r.status >= 400, `${r.status}`)
+  r = await req(C.token, 'PATCH', `/rest/v1/contact_messages?id=eq.${msg?.id}`, { status: 'done', handled_at: new Date().toISOString() })
+  ok('admins can mark a message done', r.status < 300, `${r.status} ${r.text.slice(0, 80)}`)
+  let contactLast
+  for (let i = 0; i < 5; i++) contactLast = await contact()
+  ok('contact messages are rate-limited per connection (6th in an hour → 429)', contactLast.status === 429, `${contactLast.status} ${contactLast.text.slice(0, 80)}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/delete_old_contact_messages', {})
+  ok('clients cannot run the message clean-up', r.status >= 400, `${r.status}`)
+  await svc('DELETE', '/rest/v1/contact_messages?name=eq.RLS%20Test')
+
   // ── Location contributions (opt-in, anonymous) ──
   const D = await guest(); created.users.push(D.id)
   const token = crypto.randomUUID()
@@ -516,6 +576,8 @@ try {
   for (const p of created.photos) await fetch(`${U}/storage/v1/object/scout-photos`, { method: 'DELETE', headers: { apikey: SRK, Authorization: `Bearer ${SRK}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: [p] }) })
   for (const id of created.reports) await svc('DELETE', `/rest/v1/road_reports?id=eq.${id}`)
   for (const id of created.gems) await svc('DELETE', `/rest/v1/gems?id=eq.${id}`)
+  for (const id of created.posts) await svc('DELETE', `/rest/v1/blog_posts?id=eq.${id}`)
+  await svc('DELETE', '/rest/v1/contact_messages?name=eq.RLS%20Test')
   for (const id of created.users) await fetch(`${U}/auth/v1/admin/users/${id}`, { method: 'DELETE', headers: { apikey: SRK, Authorization: `Bearer ${SRK}` } })
   console.log(`\n${pass} passed, ${fail} failed — cleaned up ${created.users.length} users, ${created.reports.length} reports, ${created.gems.length} gems, ${created.photos.length} photos`)
 }

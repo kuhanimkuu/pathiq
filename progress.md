@@ -30,6 +30,14 @@ PathIQ is moving from "a navigation app" to "a maps app with navigation in it":
   - **Before relying on it:** lawyer review of the new privacy section; ODPC registration and a DPIA under the Kenya DPA (location tracking).
 - **Hosted `routes` function returned 500 "Could not read road reports"** during testing on 2026-10-12 (not caused by these changes; client code for routes is unchanged). Needs a look at the function logs.
 
+## Company pages, blog and contact inbox (2026-10-14)
+
+- **Footer "Company" links are real pages:** `/about`, `/blog` (+ `/blog/:slug`), `/careers`, `/press`, `/contact` (`src/pages/marketing/company/`). Careers lists no roles (honest "introduce yourself" via the contact form); Press has the boilerplate, key facts, logo/icon downloads and brand colours. Pages set their own titles; marketing pages now open at the top (or at a `#section`) on navigation.
+- **Blog written in the admin dashboard** (Admin → Blog): Markdown editor with preview, cover and inline image uploads (public `blog-images` bucket, 5 MB, images only), drafts, publish/unpublish, scheduled publishing, editable web address and author, delete. Visitors only ever see published posts (RLS); an admin opening a draft's link gets a preview. Rendered with react-markdown + remark-gfm (no raw HTML), loaded only on post pages and the editor.
+- **Contact form → Admin → Messages** (badge with the count of new ones): reply by email, mark done, delete. Writes go through `submit_contact_message` only: 5 per hour per connection (counted under a hash of the IP) and 200 per hour site-wide, plus a honeypot field. Done messages are deleted after a year (pg_cron, 01:30 UTC). Privacy policy has a new "Messages you send us" section.
+- Migration `20261014000000_blog_and_contact.sql`; admin writes audited in `admin_audit_log`. Checked in PGlite (RLS for anon/user/admin, rate limit, clean-up) and in the browser against mocked data; security tests added to `npm run test:security` (not yet run on the hosted project).
+  - **Needs:** run the migration in the SQL editor, check `cron.job` lists `pathiq-delete-old-contact-messages`, then `npm run test:security`. Set `CONTACT` in `LegalPages.jsx` when there's a public email (until then the policy points to the contact form).
+
 ## Before launch (needs a person, not code)
 
 1. **Google key.** The single demo key (Routes + Maps JS + Places) is in `.env`, `supabase/functions/.env` and the hosted secrets. It's visible in the browser bundle. Whoever owns the Cloud account should:

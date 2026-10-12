@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
@@ -23,6 +23,14 @@ function MarketingLayout() {
   const location = useLocation()
   const [menuPath, setMenuPath] = useState(null)
   const menuOpen = menuPath === location.pathname
+  // New page: start at the top, or at the #section the link points to
+  // (e.g. /privacy#road-data from Profile).
+  useEffect(() => {
+    const id = decodeURIComponent(location.hash.slice(1))
+    const target = id && document.getElementById(id)
+    if (target) target.scrollIntoView()
+    else window.scrollTo(0, 0)
+  }, [location.pathname, location.hash])
   const [authView, setAuthView] = useState('signin') // 'signin' | 'signup'
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
@@ -274,11 +282,11 @@ function MarketingLayout() {
 
           <div className="footer-col">
             <div className="footer-heading">Company</div>
-            <a href="#">About</a>
-            <a href="#">Blog</a>
-            <a href="#">Careers</a>
-            <a href="#">Press</a>
-            <a href="#">Contact</a>
+            <Link to="/about">About</Link>
+            <Link to="/blog">Blog</Link>
+            <Link to="/careers">Careers</Link>
+            <Link to="/press">Press</Link>
+            <Link to="/contact">Contact</Link>
           </div>
         </div>
 

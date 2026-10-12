@@ -18,6 +18,12 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import ScoutSubmit from './pages/ScoutSubmit'
 import { useAuth } from './context/useAuth'
 import { suspensionNotice } from './lib/suspension'
+import AboutPage from './pages/marketing/company/AboutPage'
+import BlogPage from './pages/marketing/company/BlogPage'
+import BlogPostPage from './pages/marketing/company/BlogPostPage'
+import CareersPage from './pages/marketing/company/CareersPage'
+import PressPage from './pages/marketing/company/PressPage'
+import ContactPage from './pages/marketing/company/ContactPage'
 import './App.css'
 
 // /app/* needs a session, but never shows an auth wall to get one — arriving
@@ -135,6 +141,12 @@ function App() {
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/blog" element={<BlogPage />} />
+        <Route path="/blog/:slug" element={<BlogPostPage />} />
+        <Route path="/careers" element={<CareersPage />} />
+        <Route path="/press" element={<PressPage />} />
+        <Route path="/contact" element={<ContactPage />} />
       </Route>
       <Route
         path="/app/*"

@@ -1,0 +1,175 @@
+/* About, Blog, Careers, Press and Contact. Built on Landing.css's tokens
+   (--bg-panel, --green, --text-dim…) and .section / .pill / .btn. */
+
+.company-hero { padding-bottom: 24px; }
+.company-hero h1 { font-size: 52px; line-height: 1.08; max-width: 820px; margin: 16px 0 18px; }
+.company-hero .lede { font-size: 18px; line-height: 1.6; max-width: 680px; }
+.company-hero .hero-ctas { margin-top: 28px; }
+
+.company-section { padding-top: 40px; padding-bottom: 40px; }
+.company-section h2 { font-size: 30px; margin-bottom: 14px; }
+.company-section .section-sub { margin-bottom: 28px; }
+
+.company-split { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 56px; align-items: start; }
+.company-split p + p { margin-top: 14px; }
+.company-split p { font-size: 16px; line-height: 1.7; }
+
+.company-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
+.company-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+.company-card-icon {
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+  margin-bottom: 16px;
+}
+.company-card h3 { font-family: var(--font-heading); font-size: 18px; margin: 0 0 8px; }
+.company-card p { font-size: 14.5px; line-height: 1.6; }
+.company-card .btn { margin-top: 16px; }
+
+.company-cta {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+}
+.company-cta h2 { font-size: 26px; margin: 0 0 6px; }
+.company-cta .hero-ctas { margin: 0; }
+
+.company-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  text-align: center;
+}
+.company-empty h3 { font-family: var(--font-heading); font-size: 20px; margin: 0 0 8px; }
+.company-empty p { max-width: 520px; margin: 0 auto; }
+.company-empty .btn { margin-top: 18px; }
+
+/* Facts table (Press) */
+.fact-list { display: grid; grid-template-columns: max-content 1fr; gap: 12px 28px; margin: 0; }
+.fact-list dt { color: var(--text-faint); font-size: 14px; }
+.fact-list dd { margin: 0; font-size: 15px; }
+.boilerplate {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--green);
+  border-radius: 10px;
+  padding: 18px 20px;
+  font-size: 15.5px; line-height: 1.7;
+}
+.copy-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 10px;
+  background: none; border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 12px; font: inherit; font-size: 13px; color: var(--text-dim);
+  cursor: pointer;
+}
+.copy-btn:hover { color: var(--text); border-color: var(--text-faint); }
+.asset-preview {
+  height: 120px; border-radius: 10px; margin-bottom: 14px;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+  overflow: hidden;
+}
+.asset-preview img { max-height: 84px; max-width: 90%; }
+.asset-preview img.wide { max-height: none; width: 100%; height: 100%; object-fit: cover; }
+.swatches { display: flex; flex-wrap: wrap; gap: 14px; }
+.swatch { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-dim); }
+.swatch span:first-child { width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--border); }
+.swatch code { font-family: var(--font-mono); color: var(--text); }
+
+/* Blog list */
+.blog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px; }
+.blog-card {
+  display: flex; flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.blog-card:hover { border-color: color-mix(in srgb, var(--green) 45%, var(--border)); transform: translateY(-2px); }
+.blog-card-cover { aspect-ratio: 16 / 9; background: color-mix(in srgb, var(--green) 10%, var(--bg-panel)); }
+.blog-card-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.blog-card-cover.placeholder { display: grid; place-items: center; color: var(--green); }
+.blog-card-body { padding: 20px 22px 22px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.blog-card-date { font-size: 12.5px; color: var(--text-faint); }
+.blog-card h2, .blog-card h3 { font-family: var(--font-heading); font-size: 20px; line-height: 1.3; margin: 0; color: var(--text); }
+.blog-card p { font-size: 14.5px; line-height: 1.6; }
+.blog-card-more { margin-top: auto; padding-top: 6px; font-size: 14px; font-weight: 600; color: var(--green); }
+.blog-card.featured { grid-column: 1 / -1; flex-direction: row; }
+.blog-card.featured .blog-card-cover { flex: 1.2; aspect-ratio: auto; min-height: 280px; }
+.blog-card.featured .blog-card-body { flex: 1; padding: 32px; justify-content: center; }
+.blog-card.featured h2 { font-size: 28px; }
+.blog-pager { display: flex; justify-content: space-between; gap: 12px; margin-top: 32px; }
+
+/* Blog post */
+.post { max-width: 760px; margin: 0 auto; }
+.post-back { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-dim); }
+.post-back:hover { color: var(--text); }
+.post h1 { font-size: 44px; line-height: 1.12; margin: 18px 0 14px; }
+/* .landing p resets margins at a higher specificity, so these restate theirs. */
+.landing .prose p { margin: 0 0 1.15em; color: inherit; }
+.landing .prose blockquote > p:last-child, .landing .prose li > p { margin-bottom: 0; }
+.landing .post-excerpt { font-size: 19px; line-height: 1.6; margin-bottom: 18px; }
+.post-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; color: var(--text-faint); margin-bottom: 28px; }
+.post-cover { width: 100%; border-radius: var(--radius); margin-bottom: 36px; display: block; }
+.post-draft {
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+  color: var(--amber);
+  border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-bottom: 20px;
+}
+.post-footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 28px; }
+
+/* Contact */
+.contact-layout { display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 40px; align-items: start; }
+.contact-form {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+  display: grid; gap: 16px;
+}
+.contact-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.contact-field { display: grid; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--text); }
+.contact-field .auth-input { width: 100%; font-size: 15px; padding: 11px 12px; }
+.contact-field textarea.auth-input { resize: vertical; min-height: 150px; line-height: 1.55; }
+.contact-field small { font-weight: 400; color: var(--text-faint); }
+.contact-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.contact-note { font-size: 13px; color: var(--text-faint); }
+.contact-note a { color: var(--green); text-decoration: underline; }
+.contact-error { color: var(--red); font-size: 14px; }
+.contact-sent { text-align: center; padding: 48px 28px; }
+.contact-sent .company-card-icon { margin: 0 auto 16px; }
+.contact-sent h2 { font-size: 24px; margin-bottom: 8px; }
+.contact-aside { display: grid; gap: 16px; }
+
+@media (max-width: 980px) {
+  .company-split, .contact-layout { grid-template-columns: 1fr; gap: 28px; }
+  .blog-card.featured { flex-direction: column; }
+  .blog-card.featured .blog-card-cover { min-height: 0; aspect-ratio: 16 / 9; }
+  .blog-card.featured .blog-card-body { padding: 22px; }
+}
+@media (max-width: 600px) {
+  .company-hero h1 { font-size: 34px; }
+  .company-hero .lede { font-size: 16.5px; }
+  .company-section h2 { font-size: 24px; }
+  .post h1 { font-size: 31px; }
+  .landing .post-excerpt { font-size: 17px; }
+  .contact-row { grid-template-columns: 1fr; }
+  .contact-form { padding: 20px; }
+  .company-cta { padding: 24px; }
+  .blog-card.featured h2 { font-size: 22px; }
+  .fact-list { grid-template-columns: 1fr; gap: 2px; }
+  .fact-list dd { margin-bottom: 10px; }
+  .blog-grid { grid-template-columns: 1fr; }
+}

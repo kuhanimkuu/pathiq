@@ -6,7 +6,7 @@
 // draft, not reviewed by a lawyer: have them reviewed against Kenya's Data
 // Protection Act 2019 before launch, and fill in CONTACT.
 
-const LAST_UPDATED = '12 October 2026'
+const LAST_UPDATED = '13 October 2026'
 // Set before launch: the email or address people use for privacy requests.
 const CONTACT = null
 
@@ -76,18 +76,23 @@ export function PrivacyPage() {
           are removed on your phone and never sent.
         </li>
         <li>
-          <strong>How long:</strong> each night, the previous day&apos;s points are combined into road statistics (the
-          typical speed on a stretch of road at a time of week) and deleted. Nothing raw is kept longer than 7 days.
-          Statistics are only used for a stretch where at least 5 different contributions were made, so no one
-          trip can be picked out.
+          <strong>How long:</strong> raw points are kept for up to 90 days, then deleted. Each night they&apos;re
+          combined into road speeds (the typical speed on a stretch of road at a time of week). Before they&apos;re
+          deleted, they&apos;re also combined into a road archive: how often each stretch of road was driven, in
+          which direction, and which turns drivers made at junctions. Road speeds and the archive are kept
+          permanently, but they hold no trips, no codes and no times finer than a week, and a stretch or junction is
+          only included where at least 5 different contributions were made, so no one trip can be picked out. Raw
+          points are never copied to backups or other systems.
         </li>
         <li>
-          <strong>What it&apos;s used for:</strong> showing traffic and road speeds in PathIQ, and in road data we
-          may offer to businesses and developers. That data is the statistics only, never trips or points.
+          <strong>What it&apos;s used for:</strong> showing traffic and road speeds in PathIQ, improving our map
+          (finding new roads, road shapes and turns), and in road data we may offer to businesses and developers.
+          What leaves PathIQ is the anonymous road data only, never trips or points.
         </li>
         <li>
-          <strong>Deleting:</strong> &ldquo;Delete what this device has sent&rdquo; in Profile removes the points not
-          yet combined. Statistics already made are anonymous and can&apos;t be traced back to remove.
+          <strong>Deleting:</strong> &ldquo;Delete what this device has sent&rdquo; in Profile removes the raw points it
+          sent in the last 90 days. Road speeds and the archive are anonymous, so what&apos;s already been combined
+          can&apos;t be traced back to you to remove.
         </li>
       </ul>
 
@@ -142,7 +147,7 @@ export function PrivacyPage() {
       <p>
         We don&apos;t use advertising or tracking cookies. The app keeps a few settings in your browser&apos;s local
         storage: your sign-in session, light or dark theme, voice mute, gem-alert preferences, the trip
-        you&apos;re currently navigating (so you can resume it), and, if you share road data, the last week&apos;s
+        you&apos;re currently navigating (so you can resume it), and, if you share road data, the last 90 days&apos;
         daily codes (so you can delete what was sent). Clearing your browser data removes them.
       </p>
 

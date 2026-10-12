@@ -423,7 +423,7 @@ try {
   const D = await guest(); created.users.push(D.id)
   const token = crypto.randomUUID()
   const sample = (over = {}) => ({ lat: -1.29, lng: 36.82, t: new Date().toISOString(), speed: 12.5, heading: 90, ...over })
-  for (const t of ['location_samples', 'road_speed_daily']) {
+  for (const t of ['location_samples', 'road_speed_daily', 'road_archive_cells', 'road_archive_turns']) {
     r = await req(D.token, 'GET', `/rest/v1/${t}?select=*&limit=1`)
     ok(`users cannot read ${t}`, r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status}`)
     r = await req(D.token, 'POST', `/rest/v1/${t}`, {})
@@ -449,6 +449,10 @@ try {
   ok('at most 200 samples per call', r.status >= 400, `${r.status}`)
   r = await req(D.token, 'POST', '/rest/v1/rpc/rollup_location_samples', {})
   ok('clients cannot run the roll-up', r.status >= 400, `${r.status}`)
+  r = await req(D.token, 'POST', '/rest/v1/rpc/archive_location_samples', {})
+  ok('clients cannot run the archive', r.status >= 400, `${r.status}`)
+  r = await req(D.token, 'POST', '/rest/v1/rpc/delete_location_samples', { p_tokens: Array.from({ length: 101 }, () => crypto.randomUUID()) })
+  ok('at most 100 tokens per delete', r.status >= 400, `${r.status}`)
   r = await req(null, 'POST', '/rest/v1/rpc/road_speeds_near', { p_lat: -1.29, p_lng: 36.82 })
   ok('road speeds are public but only for 5+ contributors', r.status === 200 && Array.isArray(r.json) && r.json.every((c) => c.contributors >= 5), `${r.status} ${r.text.slice(0, 80)}`)
   r = await req(B.token, 'POST', '/rest/v1/rpc/delete_location_samples', { p_tokens: [crypto.randomUUID()] })
@@ -464,6 +468,37 @@ try {
   }
   ok('location uploads are rate-limited (121st in an hour → 429)', locLast.status === 429, `${locLast.status} ${locLast.text.slice(0, 80)}`)
   await svc('DELETE', `/rest/v1/location_samples?token=eq.${token}`)
+
+  // ── Retention: speeds roll up without deleting; the archive keeps only 5+ ──
+  // Test samples go in the South Atlantic, where no real driver is, and are
+  // written by the service role (clients can't backdate).
+  const [aLat, aLng, loneLat] = [-40.1234, -30.1234, -40.2234]
+  const at = (daysAgo, s = 0) => new Date(Date.now() - daysAgo * 86400_000 + s * 1000).toISOString()
+  const raw = (tok, lat, lng, t, heading) => ({ token: tok, recorded_at: t, location: `SRID=4326;POINT(${lng} ${lat})`, speed_mps: 10, heading })
+  const recent = crypto.randomUUID()
+  await svc('POST', '/rest/v1/location_samples', [raw(recent, aLat, aLng, at(2), 0)])
+  r = await svc('POST', '/rest/v1/rpc/rollup_location_samples', {})
+  const kept = await svc('GET', `/rest/v1/location_samples?token=eq.${recent}&select=rolled_up`)
+  ok('the nightly roll-up keeps raw samples (marked rolled up)', kept.json?.length === 1 && kept.json[0].rolled_up === true, JSON.stringify(kept.json))
+  await svc('DELETE', `/rest/v1/location_samples?token=eq.${recent}`)
+  // Six devices drive the same two points 100 days ago (north, then east);
+  // one more drives somewhere alone.
+  const crowd = Array.from({ length: 6 }, () => crypto.randomUUID()), lone = crypto.randomUUID()
+  await svc('POST', '/rest/v1/location_samples', [
+    ...crowd.flatMap((tok) => [raw(tok, aLat, aLng, at(100), 0), raw(tok, aLat + 0.001, aLng, at(100, 10), 90)]),
+    raw(lone, loneLat, aLng, at(100), 0),
+  ])
+  r = await svc('POST', '/rest/v1/rpc/archive_location_samples', {})
+  ok('the service role can run the archive', r.status === 200, `${r.status} ${JSON.stringify(r.json)}`)
+  const left = await svc('GET', `/rest/v1/location_samples?token=in.(${[...crowd, lone].join(',')})&select=id`)
+  ok('raw samples are deleted once archived', left.json?.length === 0, JSON.stringify(left.json))
+  const cells = await svc('GET', `/rest/v1/road_archive_cells?cell_lng=eq.${aLng}&select=*`)
+  ok('busy cells are archived with their contributor count', cells.json?.some((c) => Number(c.cell_lat) === aLat && c.contributors === 6), JSON.stringify(cells.json))
+  ok('cells with fewer than 5 contributors are not archived', !cells.json?.some((c) => Number(c.cell_lat) === loneLat), JSON.stringify(cells.json))
+  ok('the archive holds no device tokens', cells.json?.every((c) => !('token' in c) && !Object.values(c).some((v) => [...crowd, lone].includes(v))), JSON.stringify(cells.json?.[0]))
+  const turns = await svc('GET', `/rest/v1/road_archive_turns?cell_lng=eq.${aLng.toFixed(3)}&select=*`)
+  ok('turns are archived (arrived heading north, left heading east)', turns.json?.some((t) => t.heading_in === 0 && t.heading_out === 2 && t.contributors === 6), JSON.stringify(turns.json))
+  for (const t of ['road_archive_cells', 'road_archive_turns', 'road_speed_daily']) await svc('DELETE', `/rest/v1/${t}?cell_lng=in.(${aLng},${aLng.toFixed(3)})`)
 
   // ── rate limits ──
   let last

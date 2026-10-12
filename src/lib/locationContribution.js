@@ -13,7 +13,7 @@ const MIN_GAP_MS = 5000 // at most one sample this often…
 const MIN_MOVE_M = 20 // …and only once the car has moved this far
 const MAX_ACCURACY_M = 50 // vaguer fixes are no use for road speeds
 const BATCH = 100
-const KEEP_TOKENS_DAYS = 8 // long enough to cover the server's 7-day backstop
+const KEEP_TOKENS_DAYS = 91 // covers the server keeping raw samples up to 90 days
 
 export async function setLocationSharing(on) {
   const { data, error } = await supabase.rpc('set_location_sharing', { p_on: on })

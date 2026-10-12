@@ -9,7 +9,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:security": "node supabase/tests/security.test.mjs"
+    "test:security": "node supabase/tests/security.test.mjs",
+    "export:road-archive": "node scripts/export-road-archive.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",

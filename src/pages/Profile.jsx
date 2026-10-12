@@ -363,7 +363,7 @@ function Profile() {
         <p className="list-row-sub" style={{ marginTop: 0 }}>
           Off unless you turn it on. While you navigate, PathIQ sends a thinned-out trail of where and how fast you
           drove, without your account, so we can show real road speeds. The first and last 200 m of every trip never
-          leave your phone. Raw points are deleted within a day and only kept as road statistics.{' '}
+          leave your phone. Raw points are deleted within 90 days; after that only anonymous road data is kept.{' '}
           <Link to="/privacy#road-data">How this works</Link>
         </p>
         <button className="auth-guest-btn" style={{ marginTop: 10 }} disabled={sharingBusy} onClick={handleDeleteShared}>

@@ -18,6 +18,7 @@ npm run dev            # http://localhost:5173
 | `npm run dev:phone` | Dev server over **HTTPS** on your Wi-Fi, for testing on a phone. Open the `https://192.168…` Network address it prints (accept the one-time certificate warning). The plain `http://` address can't get location on a phone: browsers only share location with https pages. |
 | `npm run build` / `npm run preview` | Production build, and serve it locally (use this to test offline/install). |
 | `npm run lint` | ESLint. |
+| `npm run export:road-archive` | Copy the anonymous road archive to `road-archive/` for the offline database (see Location data and retention). |
 | `npm run test:security` | RLS, trip rules, Scout photo rules and rate limits against a real project. Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Use a dev project, since it creates and deletes test users. |
 
 Edge function tests (Deno): `cd supabase/functions && deno test _shared/` (or `npx deno@2 test _shared/`).
@@ -36,15 +37,17 @@ Drivers can opt in (Profile → "Help improve road data") to share anonymous spe
 - Points within 200 m of a trip's start or end are dropped on the phone before anything is sent.
 - Uploads go through `contribute_location_samples`, which checks consent and is rate-limited (120 calls per hour). No client can read the tables.
 
-**Retention rules.** Data is kept in three tiers:
+**Retention rules.** Data is kept in three tiers (migrations `20261012000000_location_contributions.sql` and `20261013000000_road_archive.sql`):
 
-| Tier | What's in it | How long | Status |
-|---|---|---|---|
-| Raw points (`location_samples`) | point, time, speed, heading, daily code | **90 days**, then deleted | Built with a 7-day limit; to be raised to 90 |
-| Road speeds (`road_speed_daily`) | typical speed per ~110 m cell, direction and hour of the week | Permanent (anonymous) | Built; rolled up nightly at 00:15 UTC (pg_cron) |
-| Road archive | road shapes and turn counts at junctions, only where 5+ different contributors drove | Permanent (anonymous) | Planned |
+| Tier | What's in it | How long |
+|---|---|---|
+| Raw points (`location_samples`) | point, time, speed, heading, daily code | **83 to 90 days**, then deleted |
+| Road speeds (`road_speed_daily`) | typical speed per ~110 m cell, direction and hour of the week, per day | Permanent (anonymous). Rolled up nightly at 00:15 UTC |
+| Road archive (`road_archive_cells`, `road_archive_turns`) | how often each ~11 m cell was driven, in which direction and how fast; and at each ~110 m cell, which direction drivers left in by the direction they arrived (turns made and never made), per week | Permanent (anonymous) |
 
-**How raw points leave the system.** On day 89, a job turns raw points into the road archive, then the raw points are deleted on day 90. The archive never holds whole trips, the order points came in, or the daily codes, so it can't be traced back to anyone's journey. Only the archive may be exported to the offline database or backed up long-term.
+**How raw points leave the system.** `archive_location_samples()` runs nightly at 00:45 UTC (pg_cron). It takes every full UTC week (Monday to Sunday) whose last day is at least 83 days old, adds it to the road archive, then deletes that week's raw points. It also deletes anything received more than 90 days ago, whatever happened. Grouping by week gives the 5-contributor rule a week of drives to count instead of one day, so quieter roads still make it into the archive. Device codes, the order of points and any time finer than the week are used while it runs, but never stored.
+
+**Offline copy.** `npm run export:road-archive -- [out-dir]` (needs `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`) writes one NDJSON file per table per week to `road-archive/` (git-ignored), skipping weeks already exported, so it can run on a schedule. A week's archive is written once and never changes. This is the only data that may be exported or backed up long-term.
 
 **Rules:**
 - Never back up or export raw points. A copy kept past 90 days is still retention under Kenya's Data Protection Act, and it would make the privacy policy untrue.

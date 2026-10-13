@@ -92,11 +92,6 @@ function FeatureSheet({
                   <button className="map-route-here-btn" onClick={onShare}>
                     <Share2 size={13} /> Share
                   </button>
-                  {gem.mapsUri && (
-                    <a className="map-route-here-btn" href={gem.mapsUri} target="_blank" rel="noreferrer">
-                      Open in Google Maps
-                    </a>
-                  )}
                 </div>
               )}
             </div>

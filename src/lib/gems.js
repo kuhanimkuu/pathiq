@@ -80,13 +80,17 @@ export function getCurrentPosition({ timeoutMs = 8000 } = {}) {
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, isFallback: false }),
-      (err) => resolve(fallback(locationErrorReason(err))),
-      { timeout: timeoutMs, maximumAge: 60_000 },
+      (err) => refineLocationReason(locationErrorReason(err)).then((reason) => resolve(fallback(reason))),
+      // A fix from the last couple of minutes is fine for a starting point;
+      // the live GPS watch on the map takes over from there.
+      { timeout: timeoutMs, maximumAge: 120_000 },
     )
   })
 
+  // Out of time: often because the permission prompt is still unanswered,
+  // which deserves "tap Allow", not "still finding you".
   const hardTimeout = new Promise((resolve) => {
-    setTimeout(() => resolve(fallback('timeout')), timeoutMs + 500)
+    setTimeout(() => refineLocationReason('timeout').then((reason) => resolve(fallback(reason))), timeoutMs + 500)
   })
 
   return Promise.race([geolocationResult, hardTimeout])
@@ -97,6 +101,29 @@ export function locationErrorReason(err) {
   if (err?.code === 1) return 'denied'
   if (err?.code === 2) return 'unavailable'
   return 'timeout'
+}
+
+// The site's location permission ('granted' | 'denied' | 'prompt'), as a
+// PermissionStatus that also reports changes; null where the browser can't say.
+export async function locationPermission() {
+  try {
+    return (await navigator.permissions?.query({ name: 'geolocation' })) ?? null
+  } catch {
+    return null
+  }
+}
+
+// The error codes don't tell "this site is blocked" from "the browser asked
+// and the driver closed the prompt" or "the phone's location is switched off
+// for the browser" — and telling someone whose site setting already says
+// Allow to go and allow it is exactly the wrong advice. The permission state
+// tells them apart.
+export async function refineLocationReason(reason) {
+  if (reason !== 'denied' && reason !== 'timeout') return reason
+  const state = (await locationPermission())?.state
+  if (state === 'prompt') return reason === 'denied' ? 'dismissed' : 'prompt'
+  if (state === 'granted' && reason === 'denied') return 'off'
+  return reason
 }
 
 // Saved gems with coordinates, newest first (for one-tap routing).

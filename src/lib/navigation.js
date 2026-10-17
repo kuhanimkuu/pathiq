@@ -61,14 +61,49 @@ export function slicePath(model, fromS, toS) {
   const a = Math.max(0, fromS)
   const b = Math.min(total, toS)
   if (b <= a) return []
-  const at = (s) => {
-    let i = cum.findIndex((c) => c >= s)
-    if (i <= 0) return path[Math.max(0, i)]
-    const t = (s - cum[i - 1]) / (cum[i] - cum[i - 1] || 1)
-    return { lat: path[i - 1].lat + t * (path[i].lat - path[i - 1].lat), lng: path[i - 1].lng + t * (path[i].lng - path[i - 1].lng) }
-  }
   const inner = path.filter((_, i) => cum[i] > a && cum[i] < b)
-  return [at(a), ...inner, at(b)]
+  return [pointAt(model, a), ...inner, pointAt(model, b)]
+}
+
+// The point `s` metres along the route.
+export function pointAt(model, s) {
+  const { path, cum, total } = model
+  const at = Math.min(Math.max(0, s), total)
+  let i = cum.findIndex((c) => c >= at)
+  if (i <= 0) return path[Math.max(0, i)]
+  const t = (at - cum[i - 1]) / (cum[i] - cum[i - 1] || 1)
+  return { lat: path[i - 1].lat + t * (path[i].lat - path[i - 1].lat), lng: path[i - 1].lng + t * (path[i].lng - path[i - 1].lng) }
+}
+
+// Compass bearing from a to b, in degrees (0 = north, 90 = east).
+export function bearingDeg(a, b) {
+  const φ1 = a.lat * RAD
+  const φ2 = b.lat * RAD
+  const Δλ = (b.lng - a.lng) * RAD
+  const y = Math.sin(Δλ) * Math.cos(φ2)
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
+  return ((Math.atan2(y, x) / RAD) + 360) % 360
+}
+
+// Which way the road runs at `s`: the bearing over a short stretch around it,
+// so a kink in the polyline or GPS jitter doesn't swing the map. Null on a
+// route too short to tell.
+export function headingAt(model, s, behindM = 10, aheadM = 40) {
+  const a = pointAt(model, s - behindM)
+  const b = pointAt(model, s + aheadM)
+  if (!a || !b || distanceM(a, b) < 3) return null
+  return bearingDeg(a, b)
+}
+
+// The point `m` metres from `p` on `bearing`.
+export function offsetPoint(p, bearing, m) {
+  const d = m / EARTH_R
+  const θ = bearing * RAD
+  const φ1 = p.lat * RAD
+  const λ1 = p.lng * RAD
+  const φ2 = Math.asin(Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(θ))
+  const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(d) * Math.cos(φ1), Math.cos(d) - Math.sin(φ1) * Math.sin(φ2))
+  return { lat: φ2 / RAD, lng: λ2 / RAD }
 }
 
 // Snap `pos` onto the route, searching forward from the last known progress.
@@ -119,6 +154,7 @@ export function progress(model, s) {
       : { instruction: 'Arrive at your destination', maneuver: 'ARRIVE' }
   }
   return {
+    s, // distance travelled along the route
     stepIndex,
     nextStepIndex: stepIndex + 1, // index into steps; === steps.length means arriving
     toNextM: Math.max(0, (stepEnds[stepIndex] ?? total) - s),

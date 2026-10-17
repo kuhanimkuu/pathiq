@@ -44,10 +44,10 @@ function PlaceSheet({ place, subtitle, routeLabel, routing, onClose, onRoute, on
 
   return (
     <>
-      <button className="map-sheet-handle" onClick={onClose} aria-label="Close">
-        <X size={16} />
-      </button>
       <div className="map-sheet">
+        <button className="map-sheet-handle" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
         <div className="place-sheet-head">
           {isPinned && (
             <span className="place-sheet-icon">

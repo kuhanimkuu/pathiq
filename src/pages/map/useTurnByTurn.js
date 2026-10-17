@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { planRoutes, routeLabel } from '../../lib/routePlanning'
-import { buildNavModel, locate, progress, distanceM, spokenDistance } from '../../lib/navigation'
+import { buildNavModel, locate, progress, distanceM, spokenDistance, headingAt, pointAt } from '../../lib/navigation'
+import { itemsAhead, briefing } from '../../lib/routeAhead'
 import { reportTypeLabel } from '../../lib/roadReports'
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../../lib/activeTrip'
 import { startTrip, endTrip, recordReroute, recordGemEvent } from '../../lib/trips'
@@ -8,7 +9,7 @@ import { detourMinutes } from '../../lib/alertPrefs'
 import { isTopRated } from '../../lib/googlePlaces'
 import { holdWakeLock, notifyIfHidden } from '../../lib/driveAssist'
 import { createTripCollector } from '../../lib/locationContribution'
-import { NAV_ZOOM } from './constants'
+import { cameraAhead, canvasOverflow } from './camera'
 
 const OFF_ROUTE_M = 50 // further than this from the line counts as off-route
 const OFF_ROUTE_FIXES = 3 // …for this many GPS fixes in a row, then reroute
@@ -21,6 +22,8 @@ const GEM_PASSED_MAX_M = 400 // …and not later than this
 const GEM_ALERT_MS = 10_000
 const REPORT_WARN_M = 2000 // early warning for a road report ahead: time to take another road
 const REPORT_NEAR_M = 300 // and a reminder just before it (severity 3+)
+const TRAFFIC_WARN_M = 1500 // spoken warning for slow traffic this far ahead
+const MOVING_MPS = 1.5 // GPS heading only means something above walking pace
 const MUTE_KEY = 'pathiq-nav-muted'
 
 function readMuted() {
@@ -77,16 +80,46 @@ export default function useTurnByTurn({
   const [follow, setFollow] = useState(true)
   const [navError, setNavError] = useState('')
   const [muted, setMuted] = useState(readMuted)
+  // Where to draw the driver and which way they face: snapped onto the route
+  // while on it, so the arrow sits on the line and turns with the road.
+  const [driver, setDriver] = useState(null) // { pos, heading }
   const alertedRef = useRef(new Set())
   const trackRef = useRef({ s: 0, seg: 0, offCount: 0, lastRerouteAt: 0, lastSavedStep: -1 })
   const spokenRef = useRef(new Set())
   const collectorRef = useRef(null) // road-data contributions for this trip, when opted in
   const navActive = nav != null && nav.status !== 'arrived'
 
-  function speak(text) {
+  // Queued, so an alert doesn't cut off the turn just announced; `interrupt`
+  // for what can't wait (the turn right ahead, rerouting).
+  function speak(text, { interrupt = false } = {}) {
     if (muted || !('speechSynthesis' in window)) return
-    window.speechSynthesis.cancel()
+    if (interrupt) window.speechSynthesis.cancel()
     window.speechSynthesis.speak(new SpeechSynthesisUtterance(text))
+  }
+
+  // The camera while following: a little ahead of the driver, who sits in
+  // the lower part of the heading-up map (./camera.js).
+  function followCamera(pos, heading, options) {
+    cameraAhead(mapRef.current, pos, heading, options)
+  }
+
+  // What's ahead of `s` on the current route (lib/routeAhead.js).
+  function aheadOf(current, s) {
+    const onThisRoute = (id) => id === current.routeId
+    const legEnds = current.model.legEnds
+    return itemsAhead({
+      model: current.model,
+      s,
+      traffic: current.traffic,
+      hazards: layers.reports && selectedRoute?.id === current.routeId ? selectedRoute.hazards ?? [] : [],
+      places: [
+        ...(onThisRoute(corridor.routeId) ? corridor.gems : []),
+        ...(onThisRoute(googleRoute.routeId) ? googleRoutePlaces : []),
+      ],
+      stops: current.stops
+        .slice(current.stopsReached)
+        .map((stop, i) => ({ name: stop.name, atS: legEnds[current.stopsReached + i] })),
+    })
   }
 
   function toggleMute() {
@@ -113,6 +146,8 @@ export default function useTurnByTurn({
     trackRef.current = { s: loc.s, seg: loc.seg, offCount: 0, lastRerouteAt: 0, lastSavedStep: -1 }
     spokenRef.current = new Set()
     const step = livePos ? progress(model, loc.s) : null
+    const heading = headingAt(model, loc.s)
+    setDriver(livePos ? { pos: pointAt(model, loc.s), heading } : null)
     // Resuming continues the same trip rather than starting another.
     const saved = loadActiveTrip()
     const resumed = saved?.tripId && distanceM(saved.destination, destination) < 50 ? saved : null
@@ -123,6 +158,7 @@ export default function useTurnByTurn({
       routeId: option.id,
       routeLabel: routeLabel(option),
       roadQuality: option.scores.roadQuality,
+      traffic: option.traffic ?? [],
       destination,
       destinationName,
       stops,
@@ -150,13 +186,16 @@ export default function useTurnByTurn({
     }
     setNavError('')
     saveActiveTrip(tripRecord(next, step))
-    speak(`Starting route to ${destinationName}.`)
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+    speak(`Starting route to ${destinationName}. ${briefing(aheadOf(next, loc.s))}`)
     setFollow(true)
-    const map = mapRef.current
-    if (map && livePos) {
-      map.setZoom(NAV_ZOOM)
-      map.panTo(livePos)
-    }
+    if (livePos) followCamera(livePos, heading, { zoom: true })
+  }
+
+  // "What's ahead", read out on request.
+  function readAhead() {
+    if (!nav?.step) return
+    speak(briefing(aheadOf(nav, nav.step.s)), { interrupt: true })
   }
 
   function end() {
@@ -165,6 +204,7 @@ export default function useTurnByTurn({
     }
     finishCollecting()
     setNav(null)
+    setDriver(null)
     setNavError('')
     setGemAlert(null)
     setReportAlert(null)
@@ -187,7 +227,7 @@ export default function useTurnByTurn({
       }
     } else if (step.toNextM < 80 && !spoken.has(`${key}:near`)) {
       spoken.add(`${key}:near`)
-      speak(`${step.nextInstruction}.`)
+      speak(`${step.nextInstruction}.`, { interrupt: true })
     }
   }
 
@@ -196,7 +236,7 @@ export default function useTurnByTurn({
     const reroutes = current.reroutes + 1
     setNav((n) => n && { ...n, status: 'rerouting', reroutes })
     if (current.tripId) recordReroute(current.tripId, reroutes).catch(() => {})
-    speak('Rerouting.')
+    speak('Rerouting.', { interrupt: true })
     // Stops already reached are done; the new route goes through the rest.
     const stops = current.stops.slice(current.stopsReached)
     try {
@@ -217,6 +257,7 @@ export default function useTurnByTurn({
         routeId: option.id,
         routeLabel: routeLabel(option),
         roadQuality: option.scores.roadQuality,
+        traffic: option.traffic ?? [],
       })
     } catch (err) {
       setNavError(`Couldn't reroute: ${err.message}`)
@@ -293,6 +334,17 @@ export default function useTurnByTurn({
     }
   }
 
+  // Slow traffic ahead: one spoken heads-up per stretch, early enough to
+  // expect it. (It's always on screen in the "Ahead" strip.)
+  function checkTrafficAlerts(current, s) {
+    const next = aheadOf(current, s).find((i) => i.kind === 'traffic' && i.aheadM > 0 && i.aheadM <= TRAFFIC_WARN_M)
+    if (!next || alertedRef.current.has(next.key)) return
+    alertedRef.current.add(next.key)
+    speak(
+      `Heads up: ${next.jam ? 'heavy' : 'slow'} traffic in ${spokenDistance(next.aheadM)}, for about ${spokenDistance(next.lengthM)}.`,
+    )
+  }
+
   // A live GPS fix while navigating.
   function onFix(pos) {
     const current = nav
@@ -307,7 +359,13 @@ export default function useTurnByTurn({
       t.s = loc.s
       t.seg = loc.seg
     }
-    if (follow) mapRef.current?.panTo(pos)
+    // On the route: the road's direction (steady, and right even when stopped).
+    // Off it: the GPS heading when moving, else the last one.
+    const gpsHeading = pos.speed > MOVING_MPS && Number.isFinite(pos.heading) ? pos.heading : null
+    const heading = onRoute ? headingAt(current.model, t.s) : gpsHeading ?? driver?.heading ?? null
+    const drawAt = onRoute ? pointAt(current.model, t.s) : pos
+    setDriver({ pos: drawAt, heading })
+    if (follow) followCamera(drawAt, heading)
 
     // Stops on the way, in order: reached when progress gets to the end of its leg.
     const legEnds = current.model.legEnds
@@ -340,6 +398,7 @@ export default function useTurnByTurn({
     setNav(updated)
     announce(step)
     checkReportAlerts(current, t.s)
+    checkTrafficAlerts(current, t.s)
     checkGemAlerts(current, t.s)
     // Keep the Resume card roughly current without writing on every fix.
     if (
@@ -392,22 +451,33 @@ export default function useTurnByTurn({
     setFollow(false)
     const bounds = new api.LatLngBounds()
     path.forEach((p) => bounds.extend(p))
-    // Clear of the banner above and the footer stack below (taller on phones).
-    const top = (document.querySelector('.nav-top')?.offsetHeight ?? 110) + 32
-    const bottom = (document.querySelector('.nav-bottom')?.offsetHeight ?? 140) + 32
-    map.fitBounds(bounds, { top, bottom, left: 40, right: 40 })
+    // Clear of the banner above and the footer stack below (taller on phones),
+    // and of the part of the heading-up canvas that's off screen.
+    const over = canvasOverflow()
+    const top = (document.querySelector('.nav-top')?.offsetHeight ?? 110) + 32 + over.y
+    const bottom = (document.querySelector('.nav-bottom')?.offsetHeight ?? 140) + 32 + over.y
+    map.fitBounds(bounds, { top, bottom, left: 40 + over.x, right: 40 + over.x })
   }
   function recentre() {
     setFollow(true)
-    const map = mapRef.current
-    if (!map || !livePos) return
-    map.setZoom(NAV_ZOOM)
-    map.panTo(livePos)
+    followCamera(driver?.pos ?? livePos, driver?.heading ?? null, { zoom: true })
   }
+
+  // Everything ahead, for the "Ahead" strip and list; recomputed per fix.
+  const s = nav?.step?.s
+  const ahead = useMemo(
+    () => (nav && nav.status !== 'arrived' && s != null ? aheadOf(nav, s) : []),
+    // aheadOf reads the route's data, all listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nav, s, layers.reports, selectedRoute, corridor, googleRoute, googleRoutePlaces],
+  )
 
   return {
     nav,
     navActive,
+    driver,
+    ahead,
+    readAhead,
     gemAlert,
     reportAlert,
     follow,

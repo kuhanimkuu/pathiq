@@ -85,32 +85,43 @@ export function createPathiqMap(api, element, options) {
 // point (CSS decides the exact anchor — see .map-pin in App.css). Built on
 // OverlayView rather than AdvancedMarkerElement, because Advanced Markers need
 // a Cloud map ID, which rules out styling the map from code.
+//
+// Each sits in a zero-size wrapper on the exact point. When the map is turned
+// heading-up (.map-page.heading-up in App.css), `upright` markers (pins,
+// badges) counter-rotate about that point so they stay readable; the others
+// (the driver's arrow, turn icons) turn with the map, because which way they
+// point is part of what they say.
 function defineHtmlMarker(api) {
   return class HtmlMarker extends api.OverlayView {
-    constructor({ map, position, content, zIndex = 1 }) {
+    constructor({ map, position, content, zIndex = 1, upright = true }) {
       super()
       this.position = position
       this.content = content
       content.style.position = 'absolute'
-      content.style.zIndex = String(zIndex)
+      const wrapper = document.createElement('div')
+      wrapper.className = upright ? 'html-marker upright' : 'html-marker'
+      wrapper.style.position = 'absolute'
+      wrapper.style.zIndex = String(zIndex)
+      wrapper.appendChild(content)
+      this.wrapper = wrapper
       // Taps on a marker shouldn't also count as a tap on the map underneath.
-      api.OverlayView.preventMapHitsAndGesturesFrom(content)
+      api.OverlayView.preventMapHitsAndGesturesFrom(wrapper)
       this.setMap(map)
     }
 
     onAdd() {
-      this.getPanes().overlayMouseTarget.appendChild(this.content)
+      this.getPanes().overlayMouseTarget.appendChild(this.wrapper)
     }
 
     draw() {
       const point = this.getProjection()?.fromLatLngToDivPixel(new api.LatLng(this.position))
       if (!point) return
-      this.content.style.left = `${point.x}px`
-      this.content.style.top = `${point.y}px`
+      this.wrapper.style.left = `${point.x}px`
+      this.wrapper.style.top = `${point.y}px`
     }
 
     onRemove() {
-      this.content.remove()
+      this.wrapper.remove()
     }
 
     setPosition(position) {

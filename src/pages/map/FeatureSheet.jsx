@@ -34,10 +34,10 @@ function FeatureSheet({
 }) {
   return (
     <>
-      <button className="map-sheet-handle" onClick={onClose} aria-label="Close">
-        <X size={16} />
-      </button>
       <div className="map-sheet">
+        <button className="map-sheet-handle" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
         {gem ? (
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
             <GemBadge category={gem.category} size={44} />

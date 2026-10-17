@@ -2,12 +2,15 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Navigation2, LocateOff, TriangleAlert, MapPinPlus, Eye, LocateFixed, MapPin, Play } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
-import { fetchNearbyGems, fetchSavedGemIds, fetchSavedGems, saveGem, unsaveGem, confirmGem, getCurrentPosition, locationErrorReason } from '../lib/gems'
+import {
+  fetchNearbyGems, fetchSavedGemIds, fetchSavedGems, saveGem, unsaveGem, confirmGem,
+  getCurrentPosition, locationErrorReason, refineLocationReason, locationPermission,
+} from '../lib/gems'
 import { locationHelp } from '../lib/locationHelp'
 import { fetchNearbyRoadReports } from '../lib/roadReports'
 import { planRoutes, fetchRouteCorridor, formatDuration, MAX_STOPS } from '../lib/routePlanning'
 import { loadGoogleMaps, createPathiqMap, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
-import { buildNavModel, distanceM, formatDistance, slicePath } from '../lib/navigation'
+import { buildNavModel, distanceM, formatDistance, slicePath, headingAt } from '../lib/navigation'
 import { loadActiveTrip } from '../lib/activeTrip'
 import { fetchRecentDestinations } from '../lib/trips'
 import { loadAlertPrefs, saveAlertPrefs, corridorForDetour } from '../lib/alertPrefs'
@@ -21,6 +24,7 @@ import { shareLocation, parseSharedLocation } from '../lib/share'
 import DirectionsList from '../components/DirectionsList'
 import { ME, NAV_ZOOM, placeName } from './map/constants'
 import { parseUrlPlan } from './map/urlPlan'
+import { cameraAhead } from './map/camera'
 import { LayerButtons, CategoryChips } from './map/MapControls'
 import { GemAlert, ReportAlert } from './map/NavAlerts'
 import FeatureSheet from './map/FeatureSheet'
@@ -123,6 +127,7 @@ function MapPage() {
   const [showRouteSteps, setShowRouteSteps] = useState(false)
   const recenteredRef = useRef(false)
 
+  const pageRef = useRef(null)
   const mapDivRef = useRef(null)
   const mapRef = useRef(null)
   const mapsApiRef = useRef(null)
@@ -570,34 +575,71 @@ function MapPage() {
   // Live GPS the whole time the map is open, not just while navigating, so a
   // route starts from where the driver is now rather than where they were
   // when the page loaded, and turning location on later is picked up.
+  // A watch that was refused stays dead, so it's restarted when the
+  // permission changes to allowed, and by the notice's Try again.
+  const watchRef = useRef({ id: null, restart: () => {} })
   useEffect(() => {
     // Insecure pages never get location; getCurrentPosition already reported why.
     if (!('geolocation' in navigator) || !window.isSecureContext) return
-    const id = navigator.geolocation.watchPosition(
-      (p) =>
-        latest.current.handleFix({
-          lat: p.coords.latitude,
-          lng: p.coords.longitude,
-          isFallback: false,
-          // for road-data contributions (lib/locationContribution), when opted in
-          accuracy: p.coords.accuracy,
-          speed: p.coords.speed,
-          heading: p.coords.heading,
-          timestamp: p.timestamp,
-        }),
-      (err) => {
-        const reason = locationErrorReason(err)
-        // Keep the notice's reason current (e.g. permission denied after a slow first try).
-        setPosition((p) => (p?.isFallback ? { ...p, reason } : p))
-        const n = latest.current.nav
-        if (n && n.status !== 'arrived') turn.setNavError(`${locationHelp(reason).title}. Navigation needs your live location.`)
-      },
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
-    )
-    return () => navigator.geolocation.clearWatch(id)
+    const w = watchRef.current
+    const start = () => {
+      if (w.id != null) navigator.geolocation.clearWatch(w.id)
+      w.id = navigator.geolocation.watchPosition(
+        (p) =>
+          latest.current.handleFix({
+            lat: p.coords.latitude,
+            lng: p.coords.longitude,
+            isFallback: false,
+            // for road-data contributions (lib/locationContribution), when opted in
+            accuracy: p.coords.accuracy,
+            speed: p.coords.speed,
+            heading: p.coords.heading,
+            timestamp: p.timestamp,
+          }),
+        async (err) => {
+          const reason = await refineLocationReason(locationErrorReason(err))
+          // Keep the notice's reason current (e.g. permission denied after a slow first try).
+          setPosition((p) => (p?.isFallback ? { ...p, reason } : p))
+          const n = latest.current.nav
+          if (n && n.status !== 'arrived') {
+            // A lost signal mid-drive (tunnel, trees) isn't a settings problem.
+            turn.setNavError(
+              reason === 'timeout' ? 'GPS signal lost. Waiting for your location…' : `${locationHelp(reason).title}. Navigation needs your live location.`,
+            )
+          }
+        },
+        { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
+      )
+    }
+    w.restart = start
+    start()
+    let permission = null
+    const onPermission = () => permission?.state === 'granted' && start()
+    locationPermission().then((status) => {
+      permission = status
+      permission?.addEventListener('change', onPermission)
+    })
+    return () => {
+      permission?.removeEventListener('change', onPermission)
+      if (w.id != null) navigator.geolocation.clearWatch(w.id)
+      w.id = null
+    }
     // setNavError is a state setter: stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // "Try again" on the location notice: ask once more (which shows the
+  // browser's prompt again where it can) and restart the GPS watch.
+  async function retryLocation() {
+    watchRef.current.restart()
+    const { live, reason } = await locateNow()
+    if (live) {
+      mapRef.current?.panTo(live)
+      setNotice('Location found')
+    } else {
+      setNotice(locationHelp(reason).title)
+    }
+  }
 
   // Gems/reports along whichever route is selected, on its real geometry.
   useEffect(() => {
@@ -732,15 +774,21 @@ function MapPage() {
   })
 
   const followingRoute = navActive || preview != null
+  // Outside navigation the arrow uses the GPS heading, when moving.
+  const gpsHeading = livePos?.speed > 1.5 && Number.isFinite(livePos.heading) ? livePos.heading : null
   useRouteOverlays({
     mapRef,
     mapsApiRef,
     mapReady,
-    livePos,
+    driverPos: (navActive && turn.driver?.pos) || livePos,
+    driverHeading: navActive && turn.driver ? turn.driver.heading : gpsHeading,
     layers,
     plan,
     selectedRoute,
     followingRoute,
+    navModel: navActive ? nav.model : null,
+    travelledM: navActive ? nav.step?.s ?? 0 : 0,
+    passedStepIndex: navActive ? nav.step?.stepIndex ?? null : null,
     onSelectRoute: (id) => setPlan((p) => (p ? { ...p, selectedId: id } : p)),
   })
 
@@ -753,29 +801,77 @@ function MapPage() {
     if (!map || !api || !options) return
     const bounds = new api.LatLngBounds()
     options.forEach((o) => o.path.forEach((p) => bounds.extend(p)))
-    // Keep the routes clear of the route editor above and the route panel below.
+    // Keep the routes clear of the route editor and the route panel: above and
+    // below on phones, a column down the left on wide screens.
+    if (window.matchMedia('(min-width: 900px)').matches) {
+      map.fitBounds(bounds, { top: 40, bottom: 40, left: 420 + 16 + 40, right: 72 })
+      return
+    }
     const top = (editorRef.current?.offsetHeight ?? 110) + 36
     const panelHeight = routePanelRef.current?.offsetHeight ?? 280
     map.fitBounds(bounds, { top, bottom: panelHeight + 24, left: 40, right: 72 })
   }, [options])
+
+  // Wide screens: the route panel sits right under the route editor, so the
+  // routes' summary is next to where they were chosen (App.css, --editor-h).
+  const editorShown = draft != null && !picking && !nav && preview == null
+  useEffect(() => {
+    const page = pageRef.current
+    const el = editorRef.current
+    if (!page || !el || !editorShown) return
+    const sync = () => page.style.setProperty('--editor-h', `${el.offsetHeight}px`)
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [editorShown])
   useEffect(() => {
     if (!mapReady || latest.current.nav || latest.current.preview) return
     fitRoutes()
   }, [mapReady, fitRoutes])
 
-  // Previewing: the map follows the step being shown.
+  // Previewing: the map follows the step being shown, turned the way you'd
+  // be driving there.
   const previewStep = preview != null ? selectedRoute?.steps?.[preview.index] : null
+  const previewIndex = preview?.index
+  const previewHeading = useMemo(() => {
+    if (previewIndex == null || !selectedRoute?.path?.length) return null
+    const model = buildNavModel(selectedRoute)
+    return headingAt(model, previewIndex > 0 ? model.stepEnds[previewIndex - 1] : 0, 0, 40)
+  }, [selectedRoute, previewIndex])
   useEffect(() => {
     const map = mapRef.current
     if (!mapReady || !map || !previewStep) return
     map.setZoom(NAV_ZOOM)
-    map.panTo(previewStep.start)
-  }, [mapReady, previewStep])
+    cameraAhead(map, previewStep.start, previewHeading)
+  }, [mapReady, previewStep, previewHeading])
+
+  // Heading-up, like Google Maps: while following a route the map turns so the
+  // way you're going is up the screen (camera.js). North-up again once the
+  // driver drags the map or asks for the overview.
+  const headingUp = navActive || preview != null
+  const mapHeading = navActive ? (follow ? turn.driver?.heading ?? null : null) : preview != null ? previewHeading : null
+  const rotationRef = useRef(0)
+  useEffect(() => {
+    const page = pageRef.current
+    if (!page) return
+    // The shortest way round: 350° → 10° turns 20°, not 340° backwards.
+    const prev = rotationRef.current
+    const delta = ((((mapHeading ?? 0) - prev) % 360) + 540) % 360 - 180
+    rotationRef.current = prev + delta
+    page.style.setProperty('--map-rot', `${rotationRef.current}deg`)
+  }, [mapHeading])
+
+  // Phones: navigation gets the whole screen (no header or tab bar).
+  useEffect(() => {
+    document.documentElement.classList.toggle('driving', navActive)
+    return () => document.documentElement.classList.remove('driving')
+  }, [navActive])
 
   function closePreview() {
     setPreview(null)
-    // After the panel re-renders, so its height is known.
-    setTimeout(fitRoutes)
+    // Once the panel has re-rendered and the map is back to its normal size.
+    setTimeout(fitRoutes, 120)
   }
 
   function toggleCategory(cat) {
@@ -829,7 +925,7 @@ function MapPage() {
                 key: 'me',
                 icon: <LocateFixed size={15} />,
                 title: 'Your location',
-                sub: livePos ? 'Where you are now' : 'Location is off. Tap to try again.',
+                sub: livePos ? 'Where you are now' : `${locationHelp(position?.reason).title}. Tap to try again.`,
                 onPick: () => fillSlot(picking, ME),
               },
             ]),
@@ -852,7 +948,7 @@ function MapPage() {
   const exploring = !nav && !draft && !dropped && !selectedGem && !selectedIncident && !picking
 
   return (
-    <div className="map-page">
+    <div className={'map-page' + (headingUp ? ' heading-up' : '')} ref={pageRef}>
       <div className="map-canvas" ref={mapDivRef} />
 
       {(loading || (!mapReady && !mapError)) && <p className="map-status">Loading map…</p>}
@@ -872,6 +968,8 @@ function MapPage() {
           status={nav.status}
           destinationName={nav.destinationName}
           nextStop={nextStop}
+          ahead={turn.ahead}
+          onReadAhead={turn.readAhead}
           muted={turn.muted}
           onToggleMute={turn.toggleMute}
           onEnd={endNavigation}
@@ -1028,6 +1126,11 @@ function MapPage() {
             central Nairobi, and you can plan a route by choosing a starting point.{' '}
             <Link to="/privacy">How we use location</Link>
           </span>
+          {position.reason !== 'insecure' && position.reason !== 'unsupported' && (
+            <button className="map-location-retry" onClick={retryLocation}>
+              Try again
+            </button>
+          )}
         </div>
       )}
 

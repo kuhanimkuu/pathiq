@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import ManeuverIcon from '../../components/ManeuverIcon'
-import { buildNavModel, slicePath } from '../../lib/navigation'
+import { buildNavModel, slicePath, headingAt } from '../../lib/navigation'
 import { severityBand } from '../../lib/roadReports'
 import { ROUTE_COLOR, ALT_ROUTE_COLOR, TRAFFIC_COLOR } from './constants'
 
@@ -10,26 +10,94 @@ import { ROUTE_COLOR, ALT_ROUTE_COLOR, TRAFFIC_COLOR } from './constants'
 // it never reads as traffic.
 const REPORT_STRETCH_M = 120
 const SEVERITY_COLOR = { high: '#EF4444', medium: '#F59E0B', low: '#3B82F6' }
+// The road already driven, as in Google Maps: greyed out, over everything
+// else on the route (traffic, report dots, arrows), so only what's ahead stands out.
+const TRAVELLED_COLOR = '#8A9895'
+// Manoeuvres whose icon points along the road (no turn): their arrow is
+// turned to the road's direction after them, so it never points backwards.
+const ALONG_ROAD = new Set(['DEPART', 'STRAIGHT', 'NAME_CHANGE', 'MERGE'])
 
-// Everything drawn on the map canvas that isn't a pin: the driver's dot,
+// The driver: a PathIQ arrow pointing the way they're heading, or a dot when
+// that isn't known (standing still, no route).
+const USER_MARKER_HTML = `
+  <div class="map-user-halo"></div>
+  <svg class="map-user-arrow" viewBox="0 0 40 40" width="34" height="34" aria-hidden="true">
+    <path d="M20 3 L34 35 L20 27.5 L6 35 Z" fill="#00C9A7" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M20 12 L23.5 17.5 L20 23 L16.5 17.5 Z" fill="#FFB020"/>
+  </svg>
+  <div class="map-user-dot-core"></div>`
+
+// Everything drawn on the map canvas that isn't a pin: the driver's arrow,
 // Google's traffic layer, and the planned routes with their traffic, road
 // reports, direction arrows and turn icons.
-export default function useRouteOverlays({ mapRef, mapsApiRef, mapReady, livePos, layers, plan, selectedRoute, followingRoute, onSelectRoute }) {
-  // The driver's dot: one marker, moved as GPS updates arrive. Only for a
-  // real fix; with location off there's no "you are here".
+//   driverPos / driverHeading   where to draw the driver, and which way they face (degrees, or null)
+//   navModel / travelledM       while navigating: the route and how far along it the driver is
+//   passedStepIndex             turn icons up to this step are behind the driver
+export default function useRouteOverlays({
+  mapRef,
+  mapsApiRef,
+  mapReady,
+  driverPos,
+  driverHeading,
+  layers,
+  plan,
+  selectedRoute,
+  followingRoute,
+  navModel,
+  travelledM,
+  passedStepIndex,
+  onSelectRoute,
+}) {
+  // The driver: one marker, moved as GPS updates arrive. Only for a real
+  // fix; with location off there's no "you are here". It turns with the map
+  // (not `upright`), so on a heading-up map the arrow points up the screen.
   const userMarkerRef = useRef(null)
+  const headingRef = useRef(0) // unwrapped, so 359° → 1° turns 2°, not back round
   useEffect(() => {
     const api = mapsApiRef.current
-    if (!mapReady || !api || !livePos) return
+    if (!mapReady || !api || !driverPos) return
     if (!userMarkerRef.current) {
-      const dot = document.createElement('div')
-      dot.className = 'map-user-dot'
-      dot.setAttribute('aria-label', 'Your location')
-      userMarkerRef.current = new api.HtmlMarker({ map: mapRef.current, position: livePos, content: dot, zIndex: 30 })
+      const el = document.createElement('div')
+      el.className = 'map-user-marker'
+      el.setAttribute('aria-label', 'Your location')
+      el.innerHTML = USER_MARKER_HTML
+      userMarkerRef.current = new api.HtmlMarker({ map: mapRef.current, position: driverPos, content: el, zIndex: 30, upright: false })
     } else {
-      userMarkerRef.current.setPosition(livePos)
+      userMarkerRef.current.setPosition(driverPos)
     }
-  }, [mapRef, mapsApiRef, mapReady, livePos])
+    const el = userMarkerRef.current.content
+    el.classList.toggle('has-heading', driverHeading != null)
+    if (driverHeading != null) {
+      const prev = headingRef.current
+      headingRef.current = prev + ((((driverHeading - prev) % 360) + 540) % 360) - 180
+      el.style.setProperty('--heading', `${headingRef.current}deg`)
+    }
+  }, [mapRef, mapsApiRef, mapReady, driverPos, driverHeading])
+
+  // The part of the route already driven, greyed out.
+  const travelledRef = useRef(null)
+  useEffect(() => {
+    const api = mapsApiRef.current
+    if (!mapReady || !api || !navModel) return
+    const line = new api.Polyline({
+      map: mapRef.current,
+      path: [],
+      strokeColor: TRAVELLED_COLOR,
+      strokeOpacity: 1,
+      strokeWeight: 8,
+      zIndex: 6,
+      clickable: false,
+    })
+    travelledRef.current = line
+    return () => {
+      line.setMap(null)
+      travelledRef.current = null
+    }
+  }, [mapRef, mapsApiRef, mapReady, navModel])
+  useEffect(() => {
+    if (!travelledRef.current || !navModel) return
+    travelledRef.current.setPath(travelledM > 0 ? slicePath(navModel, 0, travelledM) : [])
+  }, [navModel, travelledM])
 
   // Google's live traffic, as an optional layer under ours.
   const trafficRef = useRef(null)
@@ -136,21 +204,42 @@ export default function useRouteOverlays({ mapRef, mapsApiRef, mapReady, livePos
   }, [mapRef, mapsApiRef, mapReady, plan, followingRoute])
 
   // Turn icons at each manoeuvre of the selected route (shown at street level).
+  // Each is turned to the road: a turn icon's "up" is the way you arrive, and
+  // a straight-on arrow points the way you'll go — on a north-up map too.
+  const selectedModel = useMemo(() => (selectedRoute?.path?.length ? buildNavModel(selectedRoute) : null), [selectedRoute])
+  const maneuversRef = useRef([])
   useEffect(() => {
     const api = mapsApiRef.current
-    if (!mapReady || !api || !selectedRoute?.steps?.length) return
-    const created = selectedRoute.steps.slice(1).map((step) => {
+    if (!mapReady || !api || !selectedModel || !selectedRoute?.steps?.length) return
+    const created = selectedRoute.steps.map((step, i) => {
+      if (i === 0) return null // the start: the driver's own arrow is there
+      const s = selectedModel.stepEnds[i - 1]
+      const bearing = ALONG_ROAD.has(step.maneuver) ? headingAt(selectedModel, s, 0, 30) : headingAt(selectedModel, s, 30, 0)
       const el = document.createElement('div')
       el.className = 'maneuver-marker'
       el.title = step.instruction
+      el.style.setProperty('--bearing', `${bearing ?? 0}deg`)
       const root = createRoot(el)
       root.render(<ManeuverIcon maneuver={step.maneuver} size={13} strokeWidth={2.5} />)
-      return { marker: new api.HtmlMarker({ map: mapRef.current, position: step.start, content: el, zIndex: 22 }), root }
+      return {
+        el,
+        marker: new api.HtmlMarker({ map: mapRef.current, position: step.start, content: el, zIndex: 22, upright: false }),
+        root,
+      }
     })
-    return () =>
-      created.forEach(({ marker, root }) => {
-        marker.setMap(null)
-        setTimeout(() => root.unmount()) // not during React's own commit
+    maneuversRef.current = created
+    return () => {
+      maneuversRef.current = []
+      created.forEach((m) => {
+        if (!m) return
+        m.marker.setMap(null)
+        setTimeout(() => m.root.unmount()) // not during React's own commit
       })
-  }, [mapRef, mapsApiRef, mapReady, selectedRoute])
+    }
+  }, [mapRef, mapsApiRef, mapReady, selectedRoute, selectedModel])
+
+  // While driving, turns already made drop off the map.
+  useEffect(() => {
+    maneuversRef.current.forEach((m, i) => m?.el.classList.toggle('passed', passedStepIndex != null && i <= passedStepIndex))
+  }, [passedStepIndex, selectedRoute])
 }

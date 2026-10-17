@@ -112,7 +112,8 @@ PathIQ is moving from "a navigation app" to "a maps app with navigation in it":
 
 - **Business/partner** and **developer** account tiers (see the `pathiq-tiered-user-access` memory). They're product direction, not designed yet.
 - Company pages linked from the footer (About, Blog, Careers, Press, Contact, Docs, Status, Changelog, Scout Portal/Earnings/Training/Community) are still `#` links.
-- Navigation polish: heading-up camera (needs a vector map ID), greying out the part of the route already driven, and warnings about road reports ahead.
+- A true vector-map heading-up camera with tilt. The map is raster (styled from code), so heading-up is done by rotating the canvas (`src/pages/map/camera.js`): it works, but street labels turn with it. A Cloud map ID with the same style would let Google rotate it natively.
+- A generative-AI narrative of the road ahead. "Ahead on your route" (`src/lib/routeAhead.js`) is built from the route's own data (traffic, reports, gems, facilities, stops), not an LLM.
 - Verifying trips on the server: the route's road score at start and "arrived" are self-reported by the client.
 
 ## Test data note

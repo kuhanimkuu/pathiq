@@ -9,11 +9,16 @@
   grid-template-columns: 1fr;
   grid-template-rows: auto 1fr auto;
   grid-template-areas: "header" "content" "tabbar";
+  /* dvh: the screen actually visible. On phones 100vh is the height with the
+     browser's address bar hidden, which pushed the bottom of the map (route
+     summary, navigation footer) below the fold. */
   height: 100vh;
+  height: 100dvh;
 }
 
 .app-loading {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -783,7 +788,7 @@ html.light .google-btn:hover:not(:disabled) { background: #F8F9FA; }
   /* full bleed: the negative margins undo .app-content's padding, so the
      height has to add it back or a strip is left under the map */
   height: calc(100% + 32px);
-  min-height: 480px;
+  min-height: 360px;
   margin: -16px;
   overflow: hidden;
   background: var(--background);
@@ -923,10 +928,13 @@ html.light .map-alert {
   flex-shrink: 0;
 }
 
+/* The close button, inside the sheet: a round tab on its top edge on phones,
+   the top-right corner on wide screens. */
 .map-sheet-handle {
   position: absolute;
+  top: 0;
   left: 50%;
-  transform: translate(-50%, -20px);
+  transform: translate(-50%, -50%);
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 50%;
@@ -953,15 +961,22 @@ html.light .map-alert {
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Wide screens: top left, under the search bar, where the place was found
+   (the route panel docks there too). */
 @media (min-width: 900px) {
   .map-sheet {
-    left: auto;
-    right: 24px;
-    bottom: 24px;
-    width: 340px;
+    left: 16px;
+    right: auto;
+    top: 116px;
+    bottom: auto;
+    width: 420px;
+    max-height: calc(100% - 132px);
+    overflow-y: auto;
+    border: 1px solid var(--border);
     border-radius: 16px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   }
+  .map-sheet-handle { top: 10px; left: auto; right: 10px; transform: none; }
 }
 
 .map-sheet-tabs {
@@ -2294,4 +2309,189 @@ a.map-route-here-btn { text-decoration: none; }
 }
 @media (min-width: 900px) {
   .map-resume-card { right: auto; width: 380px; }
+}
+
+/* ══════════════════════════════════
+   DRIVING: heading-up map, the driver's arrow, what's ahead
+   ══════════════════════════════════ */
+
+/* Phones: navigation gets the whole screen, like Google Maps (MapPage sets
+   html.driving while a trip is on). */
+@media (max-width: 899px) {
+  html.driving .top-bar,
+  html.driving .tab-bar { display: none; }
+  html.driving .nav-bottom { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  html.driving .nav-top { top: calc(12px + env(safe-area-inset-top, 0px)); }
+}
+
+/* Heading-up (src/pages/map/camera.js): the canvas becomes a square big
+   enough to cover the screen at any angle, centred on it, and turns by
+   --map-rot so the way you're driving is up. The individual `translate` /
+   `rotate` properties keep the centring from animating along with the turn. */
+.map-page.heading-up .map-canvas {
+  inset: auto;
+  left: 50%;
+  top: 50%;
+  width: 145vmax;
+  height: 145vmax;
+  translate: -50% -50%;
+  rotate: calc(-1 * var(--map-rot, 0deg));
+  transition: rotate 0.8s ease-out;
+}
+/* Markers (lib/googleMaps.js HtmlMarker) sit in a zero-size wrapper on their
+   point; upright ones turn back by the same angle, about that point. */
+.html-marker { width: 0; height: 0; transform-origin: 0 0; }
+.map-page.heading-up .html-marker.upright {
+  rotate: var(--map-rot, 0deg);
+  transition: rotate 0.8s ease-out;
+}
+
+/* The driver: a PathIQ arrow when the heading is known, a dot when not. */
+.map-user-marker { position: absolute; width: 0; height: 0; }
+.map-user-halo {
+  position: absolute;
+  left: -22px;
+  top: -22px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0, 201, 167, 0.2);
+}
+.map-user-arrow {
+  position: absolute;
+  left: -17px;
+  top: -17px;
+  display: none;
+  rotate: var(--heading, 0deg);
+  transition: rotate 0.5s ease-out;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+}
+.map-user-dot-core {
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid #FFFFFF;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.map-user-marker.has-heading .map-user-arrow { display: block; }
+.map-user-marker.has-heading .map-user-dot-core { display: none; }
+
+/* Turn icons point along the road (useRouteOverlays), and drop off once passed. */
+.maneuver-marker svg { rotate: var(--bearing, 0deg); }
+.map-canvas.show-maneuvers .maneuver-marker.passed { display: none; }
+
+/* "Ahead on your route" (NavigationHud, lib/routeAhead.js): the nearest thing
+   just above the footer, and the full list. */
+.nav-ahead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: stretch;
+  max-width: 560px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.nav-ahead-kicker {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+.nav-ahead-title,
+.nav-ahead-sub {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-ahead-title { font-size: 14px; font-weight: 600; }
+.nav-ahead-sub { font-size: 12px; color: var(--muted-foreground); margin-top: 1px; }
+.nav-ahead-more {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 700;
+}
+.nav-ahead-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  color: var(--amber);
+}
+.nav-ahead-icon.jam { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
+.nav-ahead-icon.stop { background: color-mix(in srgb, var(--blue) 16%, transparent); color: var(--blue); }
+.nav-ahead-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; }
+.nav-ahead-row + .nav-ahead-row { border-top: 1px solid var(--border); }
+.nav-ahead-empty,
+.nav-ahead-source { margin: 0; padding: 10px 14px; font-size: 12px; color: var(--muted-foreground); }
+.nav-ahead-source { border-top: 1px solid var(--border); font-size: 11px; }
+
+.map-location-retry {
+  flex-shrink: 0;
+  align-self: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--primary);
+  background: transparent;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Wide screens: the route summary sits right under the route editor (top
+   left), next to where the route was chosen, rather than at the far bottom.
+   --editor-h is the editor's height, kept current by MapPage. */
+@media (min-width: 900px) {
+  .map-route-panel {
+    top: calc(16px + var(--editor-h, 120px) + 8px);
+    bottom: auto;
+    max-height: calc(100% - var(--editor-h, 120px) - 40px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-page.heading-up .map-canvas,
+  .map-page.heading-up .html-marker.upright,
+  .map-user-arrow { transition: none; }
+}
+
+/* Start / Steps stay in view at the bottom of the route panel however much
+   is above them (alternatives, the one-time detour question, places along
+   the route), so starting a trip on a phone never needs a scroll. */
+.map-route-panel .route-panel-actions {
+  position: sticky;
+  bottom: -14px; /* the panel's padding */
+  z-index: 1;
+  margin: 0 -14px -14px;
+  padding: 12px 14px 14px;
+  background: var(--card);
+}
+
+/* Narrow phones: the trip summary gets the full width, buttons on a row under it. */
+@media (max-width: 520px) {
+  .nav-footer { flex-wrap: wrap; row-gap: 10px; }
+  .nav-footer > div { flex-basis: 100%; }
+  .nav-footer .nav-end-btn { margin-left: auto; }
 }

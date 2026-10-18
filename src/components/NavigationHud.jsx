@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Flag, Volume2, VolumeX, X, List, Radar, TrafficCone, MapPin } from 'lucide-react'
+import { Flag, Volume2, VolumeX, X, List, Radar, TrafficCone, MapPin, Sparkles } from 'lucide-react'
 import { formatDuration } from '../lib/routePlanning'
 import { formatDistance } from '../lib/navigation'
 import { describeAhead, headlineAhead } from '../lib/routeAhead'
@@ -19,14 +19,35 @@ function AheadIcon({ item, size = 28 }) {
   )
 }
 
+// The spoken briefing of the road ahead, in words. Labelled PathIQ AI only
+// when Claude wrote it; otherwise it's PathIQ's own plain summary.
+function BriefingCard({ briefing, compact = false }) {
+  if (!briefing) return null
+  return (
+    <div className={'nav-briefing' + (compact ? ' compact' : '')} role="status" aria-live="polite">
+      <div className="nav-briefing-kicker">
+        {briefing.loading || briefing.ai ? <Sparkles size={13} /> : <Radar size={13} />}
+        {briefing.loading ? 'PathIQ AI is reading the road ahead…' : briefing.ai ? 'PathIQ AI · what\'s ahead' : "What's ahead"}
+      </div>
+      {!briefing.loading && <p className="nav-briefing-text">{briefing.text}</p>}
+    </div>
+  )
+}
+
 // "Ahead on your route": everything PathIQ knows is coming up, nearest first.
-function AheadList({ items, onRead, onClose }) {
+function AheadList({ items, briefing, onRead, onClose }) {
   return (
     <div className="directions nav-ahead-list" role="dialog" aria-label="Ahead on your route">
       <div className="directions-head">
         <span>Ahead on your route</span>
         <span style={{ display: 'flex', gap: 6 }}>
-          <button className="nav-icon-btn" onClick={onRead} aria-label="Read out what's ahead">
+          <button
+            className="nav-icon-btn"
+            onClick={onRead}
+            disabled={briefing?.loading}
+            aria-label="Read out a briefing of what's ahead"
+            title="Read out a briefing"
+          >
             <Volume2 size={16} />
           </button>
           <button className="nav-icon-btn" onClick={onClose} aria-label="Close">
@@ -34,6 +55,7 @@ function AheadList({ items, onRead, onClose }) {
           </button>
         </span>
       </div>
+      {briefing && <BriefingCard briefing={briefing} compact />}
       {items.length === 0 ? (
         <p className="nav-ahead-empty">No traffic, road reports or places of note between here and your destination.</p>
       ) : (
@@ -52,7 +74,10 @@ function AheadList({ items, onRead, onClose }) {
           })}
         </ul>
       )}
-      <p className="nav-ahead-source">From live traffic and PathIQ road reports, gems and places on this route.</p>
+      <p className="nav-ahead-source">
+        From live traffic and PathIQ road reports, gems and places on this route.
+        {briefing?.ai && ' The PathIQ AI briefing is written by AI from this list.'}
+      </p>
     </div>
   )
 }
@@ -63,7 +88,9 @@ function AheadList({ items, onRead, onClose }) {
 // `nextStop` is the next stop on the way ({ name, left }: stops still to go).
 // `ahead` is what's coming up on the route (lib/routeAhead.js): the nearest
 // thing sits just above the footer, and the Ahead button lists the rest.
-function NavigationHud({ step, steps = [], destinationName, nextStop, ahead = [], onReadAhead, muted, onToggleMute, onEnd, status, aside, children }) {
+// `briefing` is the latest spoken briefing (useTurnByTurn): shown under the
+// banner while it's new, and at the top of the Ahead list.
+function NavigationHud({ step, steps = [], destinationName, nextStop, ahead = [], briefing, onReadAhead, muted, onToggleMute, onEnd, status, aside, children }) {
   const [panel, setPanel] = useState(null) // 'steps' | 'ahead' | null
   const showSteps = panel === 'steps'
   const toggle = (name) => setPanel((p) => (p === name ? null : name))
@@ -104,6 +131,7 @@ function NavigationHud({ step, steps = [], destinationName, nextStop, ahead = []
             Then <ManeuverIcon maneuver={step.then.maneuver} size={15} /> <span>{step.then.instruction}</span>
           </div>
         )}
+        {status === 'active' && panel !== 'ahead' && (briefing?.loading || briefing?.fresh) && <BriefingCard briefing={briefing} />}
         {children}
       </div>
 
@@ -116,7 +144,7 @@ function NavigationHud({ step, steps = [], destinationName, nextStop, ahead = []
         />
       )}
       {panel === 'ahead' && status !== 'arrived' && (
-        <AheadList items={ahead} onRead={onReadAhead} onClose={() => setPanel(null)} />
+        <AheadList items={ahead} briefing={briefing} onRead={onReadAhead} onClose={() => setPanel(null)} />
       )}
 
       {/* `aside` (Overview / Re-centre) sits on top of the footer, whatever its height. */}

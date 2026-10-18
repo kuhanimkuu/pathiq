@@ -9,7 +9,7 @@ import {
 import { locationHelp } from '../lib/locationHelp'
 import { fetchNearbyRoadReports } from '../lib/roadReports'
 import { planRoutes, fetchRouteCorridor, formatDuration, MAX_STOPS } from '../lib/routePlanning'
-import { loadGoogleMaps, createPathiqMap, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
+import { loadGoogleMaps, createPathiqMap, watchVector, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
 import { buildNavModel, distanceM, formatDistance, slicePath, headingAt } from '../lib/navigation'
 import { loadActiveTrip } from '../lib/activeTrip'
 import { fetchRecentDestinations } from '../lib/trips'
@@ -24,7 +24,7 @@ import { shareLocation, parseSharedLocation } from '../lib/share'
 import DirectionsList from '../components/DirectionsList'
 import { ME, NAV_ZOOM, placeName } from './map/constants'
 import { parseUrlPlan } from './map/urlPlan'
-import { cameraAhead } from './map/camera'
+import { cameraAhead, animateCamera } from './map/camera'
 import { LayerButtons, CategoryChips } from './map/MapControls'
 import { GemAlert, ReportAlert } from './map/NavAlerts'
 import FeatureSheet from './map/FeatureSheet'
@@ -132,6 +132,9 @@ function MapPage() {
   const mapRef = useRef(null)
   const mapsApiRef = useRef(null)
   const [mapReady, setMapReady] = useState(false)
+  // A vector map (VITE_GOOGLE_MAP_ID) turns and tilts natively; otherwise the
+  // canvas is turned instead (map/camera.js).
+  const [nativeHeading, setNativeHeading] = useState(false)
   const [mapError, setMapError] = useState('')
   const [view, setView] = useState(null) // { center, radiusM, zoom } — the map area on screen
 
@@ -510,7 +513,11 @@ function MapPage() {
     loadGoogleMaps()
       .then((api) => {
         if (cancelled || !mapDivRef.current) return
-        const map = createPathiqMap(api, mapDivRef.current, { center: latest.current.position, zoom: 14 })
+        const map = createPathiqMap(api, mapDivRef.current, { center: latest.current.position, zoom: 14, vector: true })
+        watchVector(map, setNativeHeading)
+        // Upright markers and the driver's arrow follow the map's own heading.
+        const page = pageRef.current
+        map.addListener('heading_changed', () => page?.style.setProperty('--map-heading', `${map.getHeading() ?? 0}deg`))
         // Turn icons only at street level (CSS hides them otherwise).
         const div = mapDivRef.current
         const syncZoomClass = () => div.classList.toggle('show-maneuvers', map.getZoom() >= MANEUVER_MIN_ZOOM)
@@ -855,12 +862,18 @@ function MapPage() {
   useEffect(() => {
     const page = pageRef.current
     if (!page) return
+    // Native: the camera turns with each move (cameraAhead); back to
+    // north-up and flat when not following.
+    if (nativeHeading) {
+      if (mapHeading == null && mapRef.current) animateCamera(mapRef.current, { heading: 0, tilt: 0 })
+      return
+    }
     // The shortest way round: 350° → 10° turns 20°, not 340° backwards.
     const prev = rotationRef.current
     const delta = ((((mapHeading ?? 0) - prev) % 360) + 540) % 360 - 180
     rotationRef.current = prev + delta
     page.style.setProperty('--map-rot', `${rotationRef.current}deg`)
-  }, [mapHeading])
+  }, [mapHeading, nativeHeading])
 
   // Phones: navigation gets the whole screen (no header or tab bar).
   useEffect(() => {
@@ -948,7 +961,7 @@ function MapPage() {
   const exploring = !nav && !draft && !dropped && !selectedGem && !selectedIncident && !picking
 
   return (
-    <div className={'map-page' + (headingUp ? ' heading-up' : '')} ref={pageRef}>
+    <div className={'map-page' + (nativeHeading ? ' native-heading' : headingUp ? ' heading-up' : '')} ref={pageRef}>
       <div className="map-canvas" ref={mapDivRef} />
 
       {(loading || (!mapReady && !mapError)) && <p className="map-status">Loading map…</p>}
@@ -969,6 +982,7 @@ function MapPage() {
           destinationName={nav.destinationName}
           nextStop={nextStop}
           ahead={turn.ahead}
+          briefing={turn.briefing}
           onReadAhead={turn.readAhead}
           muted={turn.muted}
           onToggleMute={turn.toggleMute}

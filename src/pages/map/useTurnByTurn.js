@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { planRoutes, routeLabel } from '../../lib/routePlanning'
 import { buildNavModel, locate, progress, distanceM, spokenDistance, headingAt, pointAt } from '../../lib/navigation'
-import { itemsAhead, briefing } from '../../lib/routeAhead'
+import { itemsAhead, briefing, fetchAiBriefing } from '../../lib/routeAhead'
 import { reportTypeLabel } from '../../lib/roadReports'
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../../lib/activeTrip'
 import { startTrip, endTrip, recordReroute, recordGemEvent } from '../../lib/trips'
@@ -24,6 +24,8 @@ const REPORT_WARN_M = 2000 // early warning for a road report ahead: time to tak
 const REPORT_NEAR_M = 300 // and a reminder just before it (severity 3+)
 const TRAFFIC_WARN_M = 1500 // spoken warning for slow traffic this far ahead
 const MOVING_MPS = 1.5 // GPS heading only means something above walking pace
+const BRIEFING_REUSE_MS = 60_000 // asked again within this, the last briefing is read again
+const BRIEFING_SHOW_MS = 15_000 // how long a new briefing stays on screen under the banner
 const MUTE_KEY = 'pathiq-nav-muted'
 
 function readMuted() {
@@ -83,6 +85,10 @@ export default function useTurnByTurn({
   // Where to draw the driver and which way they face: snapped onto the route
   // while on it, so the arrow sits on the line and turns with the road.
   const [driver, setDriver] = useState(null) // { pos, heading }
+  // The latest spoken briefing of the road ahead: { text, ai, at, fresh }, or
+  // { loading: true } while PathIQ AI writes one. `fresh` while it's on screen.
+  const [briefingState, setBriefingState] = useState(null)
+  const briefingSeqRef = useRef(0)
   const alertedRef = useRef(new Set())
   const trackRef = useRef({ s: 0, seg: 0, offCount: 0, lastRerouteAt: 0, lastSavedStep: -1 })
   const spokenRef = useRef(new Set())
@@ -187,15 +193,43 @@ export default function useTurnByTurn({
     setNavError('')
     saveActiveTrip(tripRecord(next, step))
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-    speak(`Starting route to ${destinationName}. ${briefing(aheadOf(next, loc.s))}`)
+    speak(`Starting route to ${destinationName}.`)
+    requestBriefing(next, loc.s)
     setFollow(true)
     if (livePos) followCamera(livePos, heading, { zoom: true })
   }
 
-  // "What's ahead", read out on request.
+  // A briefing of the road ahead: PathIQ AI's when it answers in time,
+  // otherwise the plain one (lib/routeAhead.js), so there's always one.
+  // Spoken, and shown under the banner for a while.
+  async function requestBriefing(current, s) {
+    const seq = ++briefingSeqRef.current
+    const items = aheadOf(current, s)
+    const remainingM = Math.max(0, current.model.total - s)
+    setBriefingState({ loading: true })
+    const text = await fetchAiBriefing({
+      items,
+      destinationName: current.destinationName,
+      remainingM,
+      remainingS: current.model.total > 0 ? (current.model.durationS * remainingM) / current.model.total : 0,
+    })
+    if (seq !== briefingSeqRef.current) return // a newer one was asked for, or the trip ended
+    const result = { text: text ?? briefing(items), ai: text != null, at: Date.now(), fresh: true }
+    setBriefingState(result)
+    speak(result.text)
+  }
+
+  // "What's ahead", read out on request: the briefing from the last minute
+  // again, or a new one.
   function readAhead() {
-    if (!nav?.step) return
-    speak(briefing(aheadOf(nav, nav.step.s)), { interrupt: true })
+    if (!nav?.step || briefingState?.loading) return
+    if (briefingState?.text && Date.now() - briefingState.at < BRIEFING_REUSE_MS) {
+      setBriefingState({ ...briefingState, fresh: true })
+      speak(briefingState.text, { interrupt: true })
+      return
+    }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+    requestBriefing(nav, nav.step.s)
   }
 
   function end() {
@@ -205,6 +239,8 @@ export default function useTurnByTurn({
     finishCollecting()
     setNav(null)
     setDriver(null)
+    briefingSeqRef.current++
+    setBriefingState(null)
     setNavError('')
     setGemAlert(null)
     setReportAlert(null)
@@ -247,6 +283,7 @@ export default function useTurnByTurn({
       trackRef.current = { ...trackRef.current, s: loc.s, seg: loc.seg, offCount: 0, lastSavedStep: -1 }
       spokenRef.current = new Set()
       onRerouted({ from, stops, options, option })
+      requestBriefing({ ...current, model, stops, stopsReached: 0, routeId: option.id, traffic: option.traffic ?? [] }, loc.s)
       setNav((n) => n && {
         ...n,
         status: 'active',
@@ -427,6 +464,14 @@ export default function useTurnByTurn({
     return holdWakeLock()
   }, [navActive])
 
+  // A new briefing shows under the banner for a while, then stays in the Ahead list.
+  const briefingFreshAt = briefingState?.fresh ? briefingState.at : null
+  useEffect(() => {
+    if (!briefingFreshAt) return
+    const timer = setTimeout(() => setBriefingState((b) => (b?.at === briefingFreshAt ? { ...b, fresh: false } : b)), BRIEFING_SHOW_MS)
+    return () => clearTimeout(timer)
+  }, [briefingFreshAt])
+
   // Alerts clear themselves — nothing to tap while driving.
   const gemAlertKey = gemAlert?.key
   useEffect(() => {
@@ -449,6 +494,9 @@ export default function useTurnByTurn({
     const path = nav?.model.path ?? selectedRoute?.path
     if (!map || !api || !path?.length) return
     setFollow(false)
+    // A vector map is turned and tilted while following: flat and north-up first.
+    cancelAnimationFrame(map.__pathiqGlide ?? 0)
+    if (map.getRenderingType?.() === 'VECTOR') map.moveCamera({ heading: 0, tilt: 0 })
     const bounds = new api.LatLngBounds()
     path.forEach((p) => bounds.extend(p))
     // Clear of the banner above and the footer stack below (taller on phones),
@@ -477,6 +525,7 @@ export default function useTurnByTurn({
     navActive,
     driver,
     ahead,
+    briefing: briefingState,
     readAhead,
     gemAlert,
     reportAlert,

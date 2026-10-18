@@ -191,26 +191,28 @@ Gems and road reports both follow the same pattern. For a new kind of data, say 
 
 ---
 
-## 6. When to switch to Cloud-based styling
+## 6. Heading-up map ID (vector map for driving)
 
-Google also lets you style a map in Cloud Console and attach it to a **Map ID**. We don't do that today, for two reasons:
+Everywhere else the map is styled from code (`mapStyle.js`). The **driving map** (`/app`) can instead use a Cloud **Map ID**, which makes it a vector map that Google can turn and tilt: heading-up with a 45° driving view, like Google Maps navigation (`src/pages/map/camera.js`).
 
-- It needs access to the Google Cloud project, which PathIQ doesn't manage yet.
-- A style in code is versioned in git, reviewed in pull requests, and changes with the app.
+It's optional. Without a map ID the app still goes heading-up by rotating the whole map canvas, which works but turns street labels with it.
 
-**The catch:** JSON styles and a Map ID can't be used together. Some features only work on Map ID (vector) maps:
+JSON styles and a Map ID can't be used together: with the ID set, the driving map's look comes from the Cloud style, and `mapStyle.js` no longer applies to it (it still styles the admin and landing-page maps).
 
-- tilt and rotation, e.g. a **heading-up camera** during navigation;
-- Advanced Markers (we don't need them, because `HtmlMarker` does the job);
-- smoother zooming and some newer map features.
+**Setting it up** (needs someone with access to the Google Cloud project behind the Maps key):
 
-If PathIQ wants those:
+1. Cloud Console → Google Maps Platform → **Map Styles** → Create style. Choose **Import JSON** and paste the rules from `mapStyle.js` (`DARK` followed by `DECLUTTER`). Then switch the style to its light variant and import `LIGHT` + `DECLUTTER`, so the one style has both a dark and a light mode. Save.
+2. **Map Management** → Create Map ID: type **JavaScript**, **Vector**, with *Tilt* and *Rotation* both ticked. Attach the style from step 1 to it.
+3. Add the ID to the app's environment (`.env` locally, and the Vercel project's environment variables):
+   ```
+   VITE_GOOGLE_MAP_ID=<the map id>
+   ```
+   and redeploy. Map IDs aren't secret.
+4. Check `/app` in both themes. The map takes the theme it had when the page loaded; switching theme on a vector map applies on the next visit (Google can't change its colour scheme on a live vector map).
 
-1. In Cloud Console → Google Maps Platform → Map Styles, create a style and recreate the rules from `mapStyle.js`. The editor has the same feature and element names. Make one style for dark and one for light.
-2. Create a **JavaScript vector** Map ID and attach the style to it.
-3. In `createPathiqMap`, replace `styles` / `backgroundColor` with `mapId: '<your id>'` and `colorScheme: currentTheme() === 'light' ? 'LIGHT' : 'DARK'`.
-4. `HtmlMarker` keeps working unchanged.
-5. Keep `mapStyle.js` in the repo as the record of the intended look, or delete it once the Cloud style is the source of truth.
+To try it before making a style, set `VITE_GOOGLE_MAP_ID=DEMO_MAP_ID`: Google's demo vector map, in Google's default look.
+
+`HtmlMarker` works the same on both kinds of map.
 
 ---
 

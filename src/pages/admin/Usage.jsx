@@ -9,6 +9,9 @@ const LIMIT_KINDS = [
   { prefix: 'routes:user:', label: 'Route requests (user)', limit: 30, per: '10 min' },
   { prefix: 'routes:ip:', label: 'Route requests (network)', limit: 60, per: '10 min' },
   { prefix: 'routes:google:global', label: 'All Google route calls', limit: 1500, per: 'hour' },
+  { prefix: 'briefing:user:', label: 'AI briefings (user)', limit: 20, per: 'hour' },
+  { prefix: 'briefing:ip:', label: 'AI briefings (network)', limit: 40, per: 'hour' },
+  { prefix: 'briefing:global', label: 'All AI briefings', limit: 500, per: 'hour' },
   { prefix: 'trips:', label: 'Trip starts', limit: 30, per: 'hour' },
   { prefix: 'road_reports:', label: 'Road reports', limit: 30, per: 'hour' },
   { prefix: 'gems:', label: 'Gem submissions', limit: 20, per: 'hour' },
@@ -20,7 +23,7 @@ const LIMIT_KINDS = [
 function describeKey(key) {
   const kind = LIMIT_KINDS.find((k) => key.startsWith(k.prefix))
   const rest = kind ? key.slice(kind.prefix.length) : key
-  return { kind, who: kind?.prefix === 'routes:ip:' ? rest : null }
+  return { kind, who: kind?.prefix === 'routes:ip:' || kind?.prefix === 'briefing:ip:' ? rest : null }
 }
 
 const usd = (n) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -41,6 +44,7 @@ function Usage() {
           google: String(d.prices?.google ?? ''),
           google_traffic: String(d.prices?.google_traffic ?? ''),
           places: String(d.prices?.places ?? ''),
+          ai_briefing: String(d.prices?.ai_briefing ?? ''),
         })
       })
       .catch((err) => !cancelled && setError(err.message))
@@ -53,8 +57,13 @@ function Usage() {
     e.preventDefault()
     setError('')
     setSaved('')
-    const next = { google: Number(prices.google), google_traffic: Number(prices.google_traffic), places: Number(prices.places) }
-    if (![next.google, next.google_traffic, next.places].every((n) => Number.isFinite(n) && n >= 0 && n < 1000)) {
+    const next = {
+      google: Number(prices.google),
+      google_traffic: Number(prices.google_traffic),
+      places: Number(prices.places),
+      ai_briefing: Number(prices.ai_briefing),
+    }
+    if (!Object.values(next).every((n) => Number.isFinite(n) && n >= 0 && n < 1000)) {
       setError('Prices must be numbers between 0 and 1000.')
       return
     }
@@ -74,6 +83,7 @@ function Usage() {
   const billed = (m.google ?? 0) + (m.google_traffic ?? 0)
   const routesCost = ((m.google ?? 0) * (data.prices?.google ?? 0) + (m.google_traffic ?? 0) * (data.prices?.google_traffic ?? 0)) / 1000
   const placesCost = ((m.places ?? 0) * (data.prices?.places ?? 0)) / 1000
+  const aiCost = ((m.ai_briefing ?? 0) * (data.prices?.ai_briefing ?? 0)) / 1000
   const cost = routesCost + placesCost
   const served = billed + (m.cache ?? 0)
   const cacheRate = served ? Math.round(((m.cache ?? 0) / served) * 100) : null
@@ -108,6 +118,14 @@ function Usage() {
           <div className="admin-tile-value">{(m.places ?? 0).toLocaleString()}</div>
           <div className="admin-tile-sub">
             {usd(placesCost)} · {((m.places_limited ?? 0) + (m.places_error ?? 0)).toLocaleString()} refused or failed
+          </div>
+        </div>
+        <div className="admin-tile">
+          <div className="admin-tile-label">PathIQ AI briefings</div>
+          <div className="admin-tile-value">{(m.ai_briefing ?? 0).toLocaleString()}</div>
+          <div className="admin-tile-sub">
+            ~{usd(aiCost)} on Anthropic (not in the Google total) ·{' '}
+            {((m.ai_briefing_limited ?? 0) + (m.ai_briefing_error ?? 0)).toLocaleString()} refused or failed
           </div>
         </div>
         <div className="admin-tile">
@@ -218,6 +236,19 @@ function Usage() {
                 min="0"
                 value={prices.places}
                 onChange={(e) => setPrices((p) => ({ ...p, places: e.target.value }))}
+              />
+            </span>
+          </label>
+          <label className="admin-field">
+            <span>AI briefing (Anthropic)</span>
+            <span className="admin-kes-input">
+              $
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={prices.ai_briefing}
+                onChange={(e) => setPrices((p) => ({ ...p, ai_briefing: e.target.value }))}
               />
             </span>
           </label>

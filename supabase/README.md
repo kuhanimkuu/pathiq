@@ -44,10 +44,13 @@ To deploy to a hosted project:
 supabase link --project-ref <ref>
 supabase db push --include-seed
 supabase secrets set GOOGLE_MAPS_API_KEY=<server key>
-supabase functions deploy routes places
+supabase secrets set ANTHROPIC_API_KEY=<Anthropic API key>
+supabase functions deploy routes places briefing
 ```
 
 The `places` function needs **Places API (New)** enabled on the same Google Cloud project as the server key.
+
+The `briefing` function is **PathIQ AI**: it asks Claude (Anthropic) to word a short spoken briefing of the road ahead while driving, from data the app already has for the route. It needs an Anthropic API key from [platform.claude.com](https://platform.claude.com) (set a monthly spend limit there). It's limited to 20 briefings per user and 40 per network an hour, and 500 an hour in total (`BRIEFING_GLOBAL_LIMIT_PER_HOUR` secret to change it), and counted on the admin Usage panel. Without the key or the function, the app reads its own plain briefing instead.
 
 A few things that only bite on a hosted project, not locally:
 

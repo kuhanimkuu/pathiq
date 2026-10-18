@@ -4,6 +4,7 @@
 // and Google's), and the stops on the way. Shown while driving and read out
 // at the start, so the driver knows what the road holds before they reach it.
 
+import { supabase } from './supabase'
 import { reportTypeLabel } from './roadReports'
 import { isTopRated } from './googlePlaces'
 import { formatDistance, spokenDistance } from './navigation'
@@ -128,4 +129,41 @@ export function briefing(items) {
   const parts = picks.map(spokenAhead)
   const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)}` : parts[0]
   return `Ahead on this route: ${list}.`
+}
+
+// ── PathIQ AI ──
+// The same items, worded by Claude (supabase/functions/briefing). Only the
+// fields the function accepts are sent: what's ahead and how far, never the
+// driver's position or route geometry. Resolves to the text, or null when it
+// isn't available (limited, offline, not deployed) — callers then use
+// briefing() above, so the driver always hears something.
+const AI_TIMEOUT_MS = 12_000
+
+export async function fetchAiBriefing({ items, destinationName, remainingM, remainingS }) {
+  const body = {
+    destinationName,
+    remainingM: Math.round(remainingM ?? 0),
+    remainingS: Math.round(remainingS ?? 0),
+    items: items.slice(0, 20).map((i) => ({
+      kind: i.kind,
+      aheadM: Math.round(i.aheadM),
+      ...(i.kind === 'traffic' && { lengthM: Math.round(i.lengthM), jam: i.jam }),
+      ...(i.kind === 'report' && { type: reportTypeLabel(i.report.type), severity: i.report.severity }),
+      ...((i.kind === 'gem' || i.kind === 'facility') && {
+        name: i.place.name,
+        category: i.place.category,
+        offRouteM: Math.round(i.place.distance_from_route_m ?? 0),
+        ...(i.place.rating != null && { rating: i.place.rating }),
+      }),
+      ...(i.kind === 'stop' && { name: i.stop.name }),
+    })),
+  }
+  try {
+    const timeout = new Promise((resolve) => setTimeout(() => resolve({ data: null, error: 'timeout' }), AI_TIMEOUT_MS))
+    const { data, error } = await Promise.race([supabase.functions.invoke('briefing', { body }), timeout])
+    if (error || typeof data?.text !== 'string' || !data.text.trim()) return null
+    return data.text.trim()
+  } catch {
+    return null
+  }
 }

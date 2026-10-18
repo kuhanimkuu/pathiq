@@ -7,6 +7,10 @@ import { currentTheme, onThemeChange } from './theme'
 // goes through the `routes` edge function and its server-side key.
 
 const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+// A Cloud map ID for a *vector* map with PathIQ's style (docs/map-styling.md,
+// "Heading-up map ID"). Optional: with it, Google turns and tilts the map
+// natively while navigating; without it the app turns the canvas itself.
+const mapId = import.meta.env.VITE_GOOGLE_MAP_ID
 
 // Google calls gm_authFailure when the key is invalid or the referrer isn't
 // allowed — usually *after* the script has loaded and a map was created, so it
@@ -62,9 +66,23 @@ export function loadGoogleMaps() {
 // A map in PathIQ's own style (src/lib/mapStyle.js), for the current theme.
 const mapBackground = (theme) => (theme === 'light' ? '#F4F7F6' : '#0A1512')
 
-export function createPathiqMap(api, element, options) {
+//
+// `vector: true` (the driving map) uses the vector map ID when one is set, so
+// it can turn heading-up and tilt. Its look then comes from the Cloud style
+// behind the ID (code styles don't apply to map IDs), in the theme's light
+// or dark variant as of when the map was made — a vector map can't switch
+// colour scheme afterwards, so a theme change applies on the next visit.
+export function createPathiqMap(api, element, { vector = false, ...options } = {}) {
+  const g = window.google.maps
+  const useMapId = vector && mapId
   const map = new api.Map(element, {
-    styles: mapStyles(currentTheme()),
+    ...(useMapId
+      ? {
+          mapId,
+          renderingType: g.RenderingType?.VECTOR,
+          colorScheme: currentTheme() === 'light' ? g.ColorScheme?.LIGHT : g.ColorScheme?.DARK,
+        }
+      : { styles: mapStyles(currentTheme()) }),
     backgroundColor: mapBackground(currentTheme()),
     disableDefaultUI: true,
     zoomControl: true,
@@ -72,6 +90,7 @@ export function createPathiqMap(api, element, options) {
     gestureHandling: 'greedy',
     ...options,
   })
+  if (useMapId) return map
   // Restyle when the theme changes (header switch, Profile, or the device
   // going dark), until the map leaves the page.
   const stop = onThemeChange((theme) => {
@@ -79,6 +98,14 @@ export function createPathiqMap(api, element, options) {
     map.setOptions({ styles: mapStyles(theme), backgroundColor: mapBackground(theme) })
   })
   return map
+}
+
+// Whether Google can turn and tilt this map itself (a vector map). Known once
+// the map has picked its renderer: `onChange(isVector)` is called then.
+export function watchVector(map, onChange) {
+  const check = () => onChange(map.getRenderingType?.() === 'VECTOR')
+  check()
+  return map.addListener('renderingtype_changed', check)
 }
 
 // Our markers: any DOM element, positioned on the map with its centre on the

@@ -2495,3 +2495,30 @@ a.map-route-here-btn { text-decoration: none; }
   .nav-footer > div { flex-basis: 100%; }
   .nav-footer .nav-end-btn { margin-left: auto; }
 }
+
+/* The briefing of the road ahead (NavigationHud BriefingCard): under the
+   banner while new, and atop the Ahead list. */
+.nav-briefing {
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: var(--card);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.nav-briefing.compact { margin: 8px 14px 4px; box-shadow: none; }
+.nav-briefing-kicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+.nav-briefing-text { margin: 4px 0 0; font-size: 14px; line-height: 1.45; color: var(--foreground); }
+
+/* Native heading-up (a vector map, src/pages/map/camera.js): Google turns
+   the map and keeps our markers upright, so it's the turn-with-the-map ones
+   (driver's arrow, turn icons) that follow its heading. */
+.map-page.native-heading .html-marker:not(.upright) { rotate: calc(-1 * var(--map-heading, 0deg)); }

@@ -135,6 +135,8 @@ function MapPage() {
   // A vector map (VITE_GOOGLE_MAP_ID) turns and tilts natively; otherwise the
   // canvas is turned instead (map/camera.js).
   const [nativeHeading, setNativeHeading] = useState(false)
+  // How far the driver has turned / tilted a vector map, whole degrees, for the compass.
+  const [camera, setCamera] = useState({ heading: 0, tilt: 0 })
   const [mapError, setMapError] = useState('')
   const [view, setView] = useState(null) // { center, radiusM, zoom } — the map area on screen
 
@@ -517,7 +519,16 @@ function MapPage() {
         watchVector(map, setNativeHeading)
         // Upright markers and the driver's arrow follow the map's own heading.
         const page = pageRef.current
-        map.addListener('heading_changed', () => page?.style.setProperty('--map-heading', `${map.getHeading() ?? 0}deg`))
+        const syncCamera = () => {
+          const heading = Math.round((((map.getHeading() ?? 0) % 360) + 360) % 360) % 360
+          const tilt = Math.round(map.getTilt() ?? 0)
+          setCamera((c) => (c.heading === heading && c.tilt === tilt ? c : { heading, tilt }))
+        }
+        map.addListener('heading_changed', () => {
+          page?.style.setProperty('--map-heading', `${map.getHeading() ?? 0}deg`)
+          syncCamera()
+        })
+        map.addListener('tilt_changed', syncCamera)
         // Turn icons only at street level (CSS hides them otherwise).
         const div = mapDivRef.current
         const syncZoomClass = () => div.classList.toggle('show-maneuvers', map.getZoom() >= MANEUVER_MIN_ZOOM)
@@ -1067,6 +1078,9 @@ function MapPage() {
             layers={layers}
             onToggle={(key) => setLayers((l) => ({ ...l, [key]: !l[key] }))}
             onMyLocation={showMyLocation}
+            // Not while the map turns itself heading-up (navigation, step preview).
+            compass={nativeHeading && !headingUp ? camera : null}
+            onCompass={() => mapRef.current && animateCamera(mapRef.current, { heading: 0, tilt: 0 })}
           />
 
           <CategoryChips active={activeCategories} onToggle={toggleCategory} hidden={draft != null} />

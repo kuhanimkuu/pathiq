@@ -81,6 +81,11 @@ export function createPathiqMap(api, element, { vector = false, ...options } = {
           mapId,
           renderingType: g.RenderingType?.VECTOR,
           colorScheme: currentTheme() === 'light' ? g.ColorScheme?.LIGHT : g.ColorScheme?.DARK,
+          // Two-finger twist turns it and two-finger drag tilts it, as in
+          // Google Maps (Ctrl/Shift + drag with a mouse); the compass in
+          // MapControls turns it back north-up.
+          headingInteractionEnabled: true,
+          tiltInteractionEnabled: true,
         }
       : { styles: mapStyles(currentTheme()) }),
     backgroundColor: mapBackground(currentTheme()),

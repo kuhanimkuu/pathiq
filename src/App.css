@@ -2708,3 +2708,6 @@ a.map-route-here-btn { text-decoration: none; }
   .route-mode-tab { flex: 1 1 0; min-width: 0; padding: 7px 2px 6px; }
   .route-mode-label { display: none; }
 }
+/* Mid-twist the map follows the fingers directly, without the glide. */
+.map-page.twisting .map-canvas,
+.map-page.twisting .html-marker.upright { transition: none; }

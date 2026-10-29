@@ -575,6 +575,10 @@ function MapPage() {
           latest.current.freeLook()
           setRouteDetails(false)
         })
+        // On a vector map Google twists and tilts it itself: two fingers down
+        // means the driver is taking over, so stop following before the next
+        // GPS fix turns it back.
+        mapDivRef.current.addEventListener('touchstart', (e) => e.touches.length >= 2 && latest.current.freeLook(), { passive: true })
         // What's on screen, once the map settles: gems and reports are
         // fetched for wherever the driver is looking, not just around them.
         map.addListener('idle', () => {
@@ -930,17 +934,20 @@ function MapPage() {
   const headingUp = navActive || preview != null
   const mapHeading = navActive ? turn.mapHeading : preview != null ? previewHeading : null
   const rotationRef = useRef(0)
-  // Dragging a turned canvas needs PathIQ's own gestures (useRotatedGestures).
+  // A canvas-turned map needs PathIQ's own gestures (useRotatedGestures): to
+  // drag it straight when it's turned, and to twist it at all, which is why
+  // they're on for the whole of navigation.
   const canvasAngle = headingUp && !nativeHeading && mapHeading != null ? mapHeading : 0
   useRotatedGestures({
     mapRef,
     canvasRef: mapDivRef,
-    active: mapReady && canvasAngle % 360 !== 0,
+    active: mapReady && !nativeHeading && (navActive || canvasAngle % 360 !== 0),
     angle: canvasAngle,
     onMove: () => {
       latest.current.freeLook()
       setRouteDetails(false)
     },
+    onTwist: navActive ? turn.twist : undefined,
   })
   useEffect(() => {
     const page = pageRef.current

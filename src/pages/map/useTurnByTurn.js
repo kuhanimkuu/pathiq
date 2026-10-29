@@ -601,6 +601,14 @@ export default function useTurnByTurn({
   function freeLook() {
     setCamera((c) => (c.mode === 'follow' ? { mode: 'free', heading: driver?.heading ?? null } : c))
   }
+  // The driver twisted the map with two fingers (`deg` clockwise): it stops
+  // following and stays turned the way they left it.
+  function twist(deg) {
+    setCamera((c) => {
+      const from = c.mode === 'free' ? c.heading : c.mode === 'follow' ? driver?.heading : 0
+      return { mode: 'free', heading: ((((from ?? 0) - deg) % 360) + 360) % 360 }
+    })
+  }
   const mapHeading = !navActive
     ? null
     : camera.mode === 'follow'
@@ -661,6 +669,7 @@ export default function useTurnByTurn({
     camera: camera.mode,
     mapHeading,
     freeLook,
+    twist,
     navError,
     setNavError,
     muted,

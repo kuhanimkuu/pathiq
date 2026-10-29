@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@1'
-import { parseSteps, parseTraffic } from './google.ts'
+import { parseSteps, parseTraffic, routeRequestBody, transitInstruction } from './google.ts'
 
 // Shape taken from a real Routes API response (Nairobi CBD, field mask as in google.ts).
 const ROUTE = {
@@ -76,4 +76,33 @@ Deno.test('traffic keeps only slow and jammed stretches', () => {
     { from: 23, to: 31, speed: 'SLOW' },
   ])
   assertEquals(parseTraffic({}), [])
+})
+
+Deno.test('a bus ride reads like a step, with its line, stops and where to get off', () => {
+  const t = transitInstruction({
+    headsign: 'Kawangware',
+    stopCount: 8,
+    stopDetails: { departureStop: { name: 'Ambassadeur' }, arrivalStop: { name: 'Yaya Centre' } },
+    localizedValues: { departureTime: { time: { text: '10:42' } } },
+    transitLine: { nameShort: '46', vehicle: { type: 'BUS', name: { text: 'Bus' } } },
+  })
+  assertEquals(t.instruction, 'Take the 46 bus towards Kawangware')
+  assertEquals(t.detail, 'from Ambassadeur · 8 stops · get off at Yaya Centre · departs 10:42')
+  assertEquals(t.maneuver, 'TRANSIT_BUS')
+})
+
+Deno.test('traffic and routing preference only on the road; transit limited to its vehicles', () => {
+  const a = { lat: -1.28, lng: 36.82 }
+  const b = { lat: -1.3, lng: 36.78 }
+  const drive = routeRequestBody(a, b, { mode: 'drive', withTraffic: true })
+  assertEquals(drive.travelMode, 'DRIVE')
+  assertEquals(drive.routingPreference, 'TRAFFIC_AWARE')
+  assertEquals(drive.extraComputations, ['TRAFFIC_ON_POLYLINE'])
+  const walk = routeRequestBody(a, b, { mode: 'walk', withTraffic: true })
+  assertEquals(walk.travelMode, 'WALK')
+  assertEquals('routingPreference' in walk, false)
+  assertEquals('extraComputations' in walk, false)
+  const train = routeRequestBody(a, b, { mode: 'train' })
+  assertEquals(train.travelMode, 'TRANSIT')
+  assertEquals(train.transitPreferences, { allowedTravelModes: ['TRAIN', 'RAIL', 'SUBWAY', 'LIGHT_RAIL'] })
 })

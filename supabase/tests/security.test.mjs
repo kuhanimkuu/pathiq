@@ -560,6 +560,107 @@ try {
   ok('turns are archived (arrived heading north, left heading east)', turns.json?.some((t) => t.heading_in === 0 && t.heading_out === 2 && t.contributors === 6), JSON.stringify(turns.json))
   for (const t of ['road_archive_cells', 'road_archive_turns', 'road_speed_daily']) await svc('DELETE', `/rest/v1/${t}?cell_lng=in.(${aLng},${aLng.toFixed(3)})`)
 
+  // ── Live road reports from drivers (trust-weighted, 20261029000000) ──
+  // Somewhere with no other reports, so nothing else merges in.
+  const lr = { lat: 4.6 + Math.random() * 0.05, lng: 31.6 + Math.random() * 0.05 }
+  const submit = (who, body) => req(who?.token, 'POST', '/rest/v1/rpc/submit_road_report', { p_lat: lr.lat, p_lng: lr.lng, ...body })
+  const vote = (who, id, yes) => req(who.token, 'POST', '/rest/v1/rpc/vote_road_report', { p_id: id, p_still_there: yes })
+  const onMap = async (who, id) => {
+    const n = await req(who.token, 'POST', '/rest/v1/rpc/road_reports_near_point', { lat: lr.lat, lng: lr.lng, radius_m: 2000 })
+    return Array.isArray(n.json) && n.json.some((x) => x.id === id)
+  }
+  const G1 = await guest(), G2 = await guest(); created.users.push(G1.id, G2.id)
+  r = await submit(null, { p_type: 'incident' })
+  ok('anon cannot submit a live road report', r.status >= 400, `${r.status}`)
+  r = await submit(G1, { p_type: 'meteor' })
+  ok('unknown report types are refused', r.status >= 400, `${r.status} ${r.text.slice(0, 80)}`)
+  r = await submit(G1, { p_type: 'incident', p_lat: 123 })
+  ok('impossible coordinates are refused', r.status >= 400, `${r.status}`)
+  r = await submit(G1, { p_type: 'incident' })
+  const liveId = r.json?.id; if (liveId) created.reports.push(liveId)
+  ok('a guest can report what they see', r.status === 200 && typeof liveId === 'string', `${r.status} ${r.text.slice(0, 120)}`)
+  ok('one guest report is not live on its own', r.json?.live === false, JSON.stringify(r.json))
+  ok('an unconfirmed report is not on the map', !(await onMap(G2, liveId)))
+  const firstScore = r.json?.score
+  r = await submit(G1, { p_type: 'incident' })
+  ok('reporting the same thing twice does not add up', r.json?.id === liveId && Math.abs(r.json?.score - firstScore) < 0.01, JSON.stringify(r.json))
+  r = await submit(G2, { p_type: 'incident', p_lat: lr.lat + 0.0002 })
+  ok('a second driver reporting it nearby counts towards the same report', r.json?.id === liveId && r.json?.merged === true, JSON.stringify(r.json))
+  ok('two guests still are not enough', r.json?.live === false, JSON.stringify(r.json))
+  r = await submit(G2, { p_type: 'pothole', p_lat: lr.lat + 0.0002 })
+  if (r.json?.id) created.reports.push(r.json.id)
+  ok('a different kind of report nearby stays separate', r.json?.id && r.json.id !== liveId, JSON.stringify(r.json))
+  const P1 = await passwordUser(`rls-live1-${Date.now()}@pathiq.test`); created.users.push(P1.id)
+  r = await vote(P1, liveId, true)
+  ok('a signed-in driver confirming it makes it live', r.status === 200 && r.json?.live === true, `${r.status} ${r.text.slice(0, 120)}`)
+  ok('a live driver report is on the map', await onMap(G2, liveId))
+  r = await req(G2.token, 'POST', '/rest/v1/rpc/road_report_status', { p_id: liveId })
+  ok('report status counts the drivers behind it', r.json?.confirmations === 3 && r.json?.denials === 0 && r.json?.my_vote === 'yes', JSON.stringify(r.json))
+  ok('report status never names who reported it', ![G1.id, G2.id, P1.id].some((id) => r.text.includes(id)), r.text.slice(0, 120))
+  r = await req(G1.token, 'GET', `/rest/v1/road_report_signals?select=*`)
+  ok('drivers cannot read report signals', r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status} ${r.text.slice(0, 80)}`)
+  r = await req(G1.token, 'POST', '/rest/v1/road_report_signals', { report_id: liveId, user_id: G1.id, kind: 'confirm', weight: 5 })
+  ok('drivers cannot write report signals', r.status >= 400, `${r.status}`)
+  r = await req(G1.token, 'GET', `/rest/v1/reporter_reputation?select=*`)
+  ok('drivers cannot read reputations', r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status}`)
+  for (const [fn, body] of [
+    ['recompute_road_report', { p_id: liveId }],
+    ['reporter_weight', { p_user: G1.id }],
+    ['apply_traffic_evidence', { p_route_wkt: 'LINESTRING(31 4, 32 5)' }],
+    ['review_live_road_reports', {}],
+    ['bump_reputation', { p_users: [G1.id], p_good: 99, p_bad: 0 }],
+  ]) {
+    r = await req(G1.token, 'POST', `/rest/v1/rpc/${fn}`, body)
+    ok(`drivers cannot call ${fn}`, r.status >= 400, `${r.status} ${r.text.slice(0, 80)}`)
+  }
+  r = await req(G1.token, 'POST', '/rest/v1/road_reports', { type: 'incident', severity: 5, location: `SRID=4326;POINT(${lr.lng} ${lr.lat})`, status: 'verified', source: 'crowd', reported_by: G1.id })
+  ok('drivers cannot insert a report straight onto the map', r.status >= 400, `${r.status}`)
+  r = await req(G1.token, 'PATCH', `/rest/v1/road_reports?id=eq.${liveId}`, { live_score: 1, status: 'verified' })
+  ok('reporters cannot change their own report', r.status >= 400 || (Array.isArray(r.json) && r.json.length === 0), `${r.status}`)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_road_reports', { p_status: 'pending', p_limit: 200 })
+  const queued = Array.isArray(r.json) ? r.json.map((x) => x.id) : []
+  r = await submit(G1, { p_type: 'hazard', p_lng: lr.lng + 0.01 })
+  const candidateId = r.json?.id; if (candidateId) created.reports.push(candidateId)
+  r = await req(C.token, 'POST', '/rest/v1/rpc/admin_road_reports', { p_status: 'pending', p_limit: 200 })
+  ok("drivers' unconfirmed reports aren't in the admin review queue", Array.isArray(r.json) && !r.json.some((x) => x.id === candidateId) && !queued.includes(liveId), `${r.status} ${r.text.slice(0, 80)}`)
+
+  // Two signed-in drivers say it's gone: it ends.
+  const P2 = await passwordUser(`rls-live2-${Date.now()}@pathiq.test`), P3 = await passwordUser(`rls-live3-${Date.now()}@pathiq.test`)
+  created.users.push(P2.id, P3.id)
+  r = await vote(P2, liveId, false)
+  ok('one "not there anymore" does not end it alone', r.json?.ended === false, JSON.stringify(r.json))
+  r = await vote(P3, liveId, false)
+  ok('"not there anymore" from other drivers ends it', r.json?.ended === true, JSON.stringify(r.json))
+  ok('an ended report is off the map', !(await onMap(G2, liveId)))
+  r = await vote(P1, liveId, true)
+  ok('an ended report takes no more answers', r.status >= 400, `${r.status}`)
+
+  // Google traffic counts as evidence (the routes function calls this with the service role).
+  r = await submit(P1, { p_type: 'traffic', p_lat: lr.lat + 0.02 })
+  const jamId = r.json?.id; if (jamId) created.reports.push(jamId)
+  const jamScore = r.json?.score
+  const jx = lr.lng, jy = lr.lat + 0.02
+  const line = `LINESTRING(${jx - 0.01} ${jy}, ${jx + 0.01} ${jy})`
+  r = await svc('POST', '/rest/v1/rpc/apply_traffic_evidence', { p_route_wkt: line, p_jam_wkt: `MULTILINESTRING((${jx - 0.002} ${jy}, ${jx + 0.002} ${jy}))` })
+  ok('Google traffic is applied to reports on the route', r.status === 200 && r.json === 1, `${r.status} ${JSON.stringify(r.json)}`)
+  r = await svc('GET', `/rest/v1/road_reports?id=eq.${jamId}&select=live_score,status`)
+  ok('a jam on Google backs up a heavy-traffic report', Number(r.json?.[0]?.live_score) > jamScore && r.json?.[0]?.status === 'verified', JSON.stringify(r.json))
+  r = await svc('POST', '/rest/v1/rpc/apply_traffic_evidence', { p_route_wkt: line, p_jam_wkt: null })
+  ok('Google traffic counts once per report per 10 minutes', r.status === 200 && r.json === 0, `${r.status} ${JSON.stringify(r.json)}`)
+
+  // Nobody says anything more: the review job ends it once it has faded.
+  await svc('PATCH', `/rest/v1/road_report_signals?report_id=eq.${jamId}`, { created_at: new Date(Date.now() - 6 * 3600_000).toISOString() })
+  await svc('PATCH', `/rest/v1/road_reports?id=eq.${jamId}`, { review_at: new Date(Date.now() - 60_000).toISOString() })
+  r = await svc('POST', '/rest/v1/rpc/review_live_road_reports', {})
+  ok('the review job runs for the service role', r.status === 200 && r.json >= 1, `${r.status} ${JSON.stringify(r.json)}`)
+  r = await svc('GET', `/rest/v1/road_reports?id=eq.${jamId}&select=ended_at,expires_at`)
+  ok('a faded report is ended by the review job', r.json?.[0]?.ended_at != null && new Date(r.json[0].expires_at) <= new Date(), JSON.stringify(r.json))
+
+  await svc('PATCH', `/rest/v1/profiles?id=eq.${G2.id}`, { suspended_until: new Date(Date.now() + 3600_000).toISOString() })
+  r = await submit(G2, { p_type: 'flooding', p_lng: lr.lng + 0.03 })
+  if (r.json?.id) created.reports.push(r.json.id)
+  ok('suspended accounts cannot report', r.status >= 400, `${r.status} ${r.text.slice(0, 80)}`)
+
   // ── rate limits ──
   let last
   for (let i = 0; i < 31; i++) {

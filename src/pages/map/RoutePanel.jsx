@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
-import { X, Play, Eye, List, Pin } from 'lucide-react'
+import { X, Play, Eye, List, Pin, Car, Motorbike, Bus, TrainFront, Bike, Footprints } from 'lucide-react'
 import { GemBadge, ReportBadge } from '../../components/PlaceIcons'
-import { formatDuration, routeLabel } from '../../lib/routePlanning'
+import { formatDuration, routeLabel, TRAVEL_MODES } from '../../lib/routePlanning'
 import { reportTypeLabel, severityBand } from '../../lib/roadReports'
 import { buildNavModel, distanceM, formatDistance } from '../../lib/navigation'
 import { detourMinutes, DETOUR_CHOICES_MIN } from '../../lib/alertPrefs'
@@ -27,6 +27,40 @@ function trafficText({ slowM, jamM }) {
   return { text: 'Traffic clear', level: 'clear' }
 }
 
+const MODE_ICON = { drive: Car, two_wheeler: Motorbike, bus: Bus, train: TrainFront, bicycle: Bike, walk: Footprints }
+
+// How to get there, as in Google Maps: one tab per way of travelling, each
+// with how long it takes ("—" when there's no way by it, blank until known).
+// Bus and train can't take stops, so they're off while there are some.
+function ModeTabs({ mode, times, hasStops, disabled, onChoose }) {
+  return (
+    <div className="route-mode-tabs" role="tablist" aria-label="How you're travelling">
+      {TRAVEL_MODES.map((m) => {
+        const Icon = MODE_ICON[m.id]
+        const t = times[m.id]
+        const blocked = m.transit && hasStops
+        const time = blocked ? 'No stops' : t?.unavailable ? '—' : t?.durationS != null ? formatDuration(t.durationS) : ''
+        return (
+          <button
+            key={m.id}
+            role="tab"
+            aria-selected={m.id === mode}
+            className={'route-mode-tab' + (m.id === mode ? ' active' : '')}
+            disabled={disabled || blocked}
+            onClick={() => onChoose(m.id)}
+            title={blocked ? `${m.label}: remove the stops to plan by ${m.label.toLowerCase()}` : m.label}
+            aria-label={`${m.label}${time ? `, ${time === '—' ? 'no route' : time}` : ''}`}
+          >
+            <Icon size={17} />
+            <span className="route-mode-label">{m.label}</span>
+            <span className="route-mode-time">{time}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // Every alternative side by side — time, distance, PathIQ's scores and the
 // road problems on it — then the selected route's problems and Start. This
 // is the whole route-comparison feature; there's no separate page for it.
@@ -44,6 +78,9 @@ function RoutePanel({
   expanded,
   livePos,
   canNavigateLive,
+  travelMode,
+  modeTimes = {},
+  onChooseMode,
   onSelect,
   onPin,
   onClear,
@@ -55,6 +92,8 @@ function RoutePanel({
   onPreview,
   onShowSteps,
 }) {
+  // Traffic only matters to the modes on the road with cars.
+  const onRoad = TRAVEL_MODES.find((m) => m.id === travelMode)?.road ?? true
   const trafficByRoute = useMemo(
     () => new Map((plan?.options ?? []).map((o) => [o.id, trafficText(trafficMetres(o))])),
     [plan],
@@ -62,6 +101,15 @@ function RoutePanel({
 
   return (
     <div className={'map-route-panel' + (expanded ? '' : ' compact')} ref={panelRef}>
+      {onChooseMode && (
+        <ModeTabs
+          mode={travelMode}
+          times={modeTimes}
+          hasStops={(plan?.stops.length ?? 0) > 0}
+          disabled={routing}
+          onChoose={onChooseMode}
+        />
+      )}
       {routing && <p className="list-row-sub" style={{ margin: 0 }}>Planning route…</p>}
       {!routing && routeError && <p className="auth-error" style={{ margin: 0 }}>{routeError}</p>}
       {!routing && selectedRoute && (
@@ -101,7 +149,7 @@ function RoutePanel({
                   </span>
                   <span className="route-option-scores">
                     <span>Road {o.scores.roadQuality}</span>
-                    <span className={`traffic-${trafficByRoute.get(o.id)?.level}`}>{trafficByRoute.get(o.id)?.text}</span>
+                    {onRoad && <span className={`traffic-${trafficByRoute.get(o.id)?.level}`}>{trafficByRoute.get(o.id)?.text}</span>}
                     <span className={o.reportCount ? 'has-reports' : ''}>
                       {o.reportCount ? `${o.reportCount} report${o.reportCount === 1 ? '' : 's'}` : 'No reports'}
                     </span>
@@ -191,8 +239,8 @@ function RoutePanel({
 
           <div className="route-legend" aria-label="Route line colours">
             <span><i className="swatch" style={{ background: ROUTE_COLOR }} /> Clear</span>
-            <span><i className="swatch" style={{ background: TRAFFIC_COLOR.SLOW }} /> Slow</span>
-            <span><i className="swatch" style={{ background: TRAFFIC_COLOR.TRAFFIC_JAM }} /> Heavy traffic</span>
+            {onRoad && <span><i className="swatch" style={{ background: TRAFFIC_COLOR.SLOW }} /> Slow</span>}
+            {onRoad && <span><i className="swatch" style={{ background: TRAFFIC_COLOR.TRAFFIC_JAM }} /> Heavy traffic</span>}
             <span><i className="swatch dotted" /> Road report</span>
           </div>
 

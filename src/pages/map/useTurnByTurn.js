@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { planRoutes, routeLabel } from '../../lib/routePlanning'
 import { buildNavModel, locate, progress, distanceM, spokenDistance, headingAt, pointAt } from '../../lib/navigation'
 import { itemsAhead, briefing, fetchAiBriefing } from '../../lib/routeAhead'
-import { reportTypeLabel } from '../../lib/roadReports'
+import { reportTypeLabel, submitRoadReport, voteRoadReport, fetchReportsToConfirm } from '../../lib/roadReports'
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../../lib/activeTrip'
 import { startTrip, endTrip, recordReroute, recordGemEvent } from '../../lib/trips'
 import { detourMinutes } from '../../lib/alertPrefs'
@@ -27,6 +27,14 @@ const MOVING_MPS = 1.5 // GPS heading only means something above walking pace
 const BRIEFING_REUSE_MS = 60_000 // asked again within this, the last briefing is read again
 const BRIEFING_SHOW_MS = 15_000 // how long a new briefing stays on screen under the banner
 const MUTE_KEY = 'pathiq-nav-muted'
+// "Still there?" about a report the driver has just passed: asked once it's
+// this far behind them (they've seen it), not after this far, and shown for
+// this long. The list of reports to ask about is refreshed this often.
+const CONFIRM_AFTER_M = 25
+const CONFIRM_BEFORE_M = 300
+const CONFIRM_SHOW_MS = 15_000
+const CONFIRM_REFRESH_MS = 3 * 60_000
+const REPORT_NOTICE_MS = 6000
 
 function readMuted() {
   try {
@@ -43,6 +51,7 @@ function tripRecord(n, step) {
     stops: n.stops.slice(n.stopsReached),
     routeId: n.routeId,
     routeLabel: n.routeLabel,
+    mode: n.mode,
     roadQuality: n.roadQuality,
     remainingM: step?.remainingM ?? n.model.total,
     remainingS: step?.remainingS ?? n.model.durationS,
@@ -57,7 +66,12 @@ function tripRecord(n, step) {
 // anonymous road-speed contributions. The map page feeds it GPS fixes with
 // `onFix` and shows its state; everything about driving lives here.
 //   nav  { status: 'active' | 'rerouting' | 'arrived', model, step, routeId, routeLabel, roadQuality,
-//          destination, destinationName, stops, stopsReached, tripId, reroutes, startedAt }
+//          destination, destinationName, stops, stopsReached, tripId, reroutes, startedAt, mode }
+//
+// The camera: 'follow' (heading-up, a little ahead of the driver), 'free'
+// (the driver moved the map: it stays turned the way it was, like Google
+// Maps, so the turn arrows keep pointing the way they did), or 'overview'
+// (the whole route, north-up). `mapHeading` is which way the map faces.
 export default function useTurnByTurn({
   mapRef,
   mapsApiRef,
@@ -73,13 +87,21 @@ export default function useTurnByTurn({
   googleRoutePlaces,
   onRerouted,
   onTripStarted,
+  onReportsChanged,
 }) {
   const [nav, setNav] = useState(null)
   const [gemAlert, setGemAlert] = useState(null) // { type: 'approaching' | 'passed', gem, aheadM, detourMin, key }
   const [reportAlert, setReportAlert] = useState(null) // { report, aheadM, key }
   // While navigating the camera follows the driver, until they drag the map
-  // to look along the route; "Re-centre" turns it back on.
-  const [follow, setFollow] = useState(true)
+  // to look along the route ('free') or ask for the overview; "Re-centre"
+  // turns it back on.
+  const [camera, setCamera] = useState({ mode: 'follow', heading: null }) // heading: held while 'free'
+  const follow = camera.mode === 'follow'
+  // Reports on the route to ask "still there?" about, and the one being asked.
+  const [toConfirm, setToConfirm] = useState([]) // [{ id, type, severity, live, atS }]
+  const [confirmPrompt, setConfirmPrompt] = useState(null) // { report, key }
+  const [reportNotice, setReportNotice] = useState(null) // { text, key, error? }
+  const [reporting, setReporting] = useState(false)
   const [navError, setNavError] = useState('')
   const [muted, setMuted] = useState(readMuted)
   // Where to draw the driver and which way they face: snapped onto the route
@@ -165,6 +187,7 @@ export default function useTurnByTurn({
       routeLabel: routeLabel(option),
       roadQuality: option.scores.roadQuality,
       traffic: option.traffic ?? [],
+      mode: option.mode ?? 'drive',
       destination,
       destinationName,
       stops,
@@ -176,6 +199,7 @@ export default function useTurnByTurn({
     alertedRef.current = new Set()
     setGemAlert(null)
     setReportAlert(null)
+    setConfirmPrompt(null)
     setNav(next)
     if (!resumed && userId) {
       startTrip(userId, { origin: livePos ?? position, destination, destinationName, option })
@@ -195,7 +219,7 @@ export default function useTurnByTurn({
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     speak(`Starting route to ${destinationName}.`)
     requestBriefing(next, loc.s)
-    setFollow(true)
+    setCamera({ mode: 'follow', heading: null })
     if (livePos) followCamera(livePos, heading, { zoom: true })
   }
 
@@ -244,6 +268,8 @@ export default function useTurnByTurn({
     setNavError('')
     setGemAlert(null)
     setReportAlert(null)
+    setConfirmPrompt(null)
+    setToConfirm([])
     clearActiveTrip()
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
   }
@@ -276,7 +302,7 @@ export default function useTurnByTurn({
     // Stops already reached are done; the new route goes through the rest.
     const stops = current.stops.slice(current.stopsReached)
     try {
-      const options = await planRoutes(from, current.destination, stops)
+      const options = await planRoutes(from, current.destination, stops, current.mode)
       const option = options[0]
       const model = buildNavModel(option)
       const loc = locate(model, from)
@@ -382,6 +408,66 @@ export default function useTurnByTurn({
     )
   }
 
+  // "Still there?" once the driver has just passed a report (one at a time,
+  // once per report per trip). Not spoken: it's a single tap, or ignored.
+  function checkConfirmPrompts(s) {
+    if (confirmPrompt) return
+    const passed = toConfirm.find(
+      (r) => s - r.atS >= CONFIRM_AFTER_M && s - r.atS <= CONFIRM_BEFORE_M && !alertedRef.current.has(`c${r.id}`),
+    )
+    if (!passed) return
+    alertedRef.current.add(`c${passed.id}`)
+    setConfirmPrompt({ report: passed, key: `c${passed.id}` })
+  }
+
+  async function answerPrompt(stillThere) {
+    const prompt = confirmPrompt
+    if (!prompt) return
+    setConfirmPrompt(null)
+    setToConfirm((list) => list.filter((r) => r.id !== prompt.report.id))
+    try {
+      const result = await voteRoadReport(prompt.report.id, stillThere)
+      setReportNotice({
+        text: result.ended ? 'Thanks. It has been taken off the map.' : 'Thanks, that helps other drivers.',
+        key: Date.now(),
+      })
+      if (result.ended || result.live !== prompt.report.live) onReportsChanged?.()
+    } catch (err) {
+      setReportNotice({ text: `Couldn't send that: ${err.message}`, key: Date.now(), error: true })
+    }
+  }
+
+  // The driver reports something where they are now. It shows for everyone
+  // once PathIQ is sure enough (the live_road_reports migration).
+  async function reportHere(type) {
+    const at = driver?.pos ?? livePos
+    if (!at) {
+      setReportNotice({ text: 'Your location is needed to report.', key: Date.now(), error: true })
+      return
+    }
+    setReporting(true)
+    try {
+      const result = await submitRoadReport({ type, lat: at.lat, lng: at.lng })
+      // Don't ask them about their own report as they pass it.
+      alertedRef.current.add(`c${result.id}`)
+      const what = reportTypeLabel(type)
+      setReportNotice({
+        key: Date.now(),
+        text: result.live
+          ? `${what} reported. It's live for drivers around you.`
+          : result.merged
+            ? `${what}: added to what other drivers reported here.`
+            : `${what} reported. Others see it once another driver or live traffic backs it up.`,
+      })
+      speak('Reported. Thank you.')
+      if (result.live) onReportsChanged?.()
+    } catch (err) {
+      setReportNotice({ text: `Couldn't report: ${err.message}`, key: Date.now(), error: true })
+    } finally {
+      setReporting(false)
+    }
+  }
+
   // A live GPS fix while navigating.
   function onFix(pos) {
     const current = nav
@@ -437,6 +523,7 @@ export default function useTurnByTurn({
     checkReportAlerts(current, t.s)
     checkTrafficAlerts(current, t.s)
     checkGemAlerts(current, t.s)
+    checkConfirmPrompts(t.s)
     // Keep the Resume card roughly current without writing on every fix.
     if (
       step.stepIndex !== t.lastSavedStep ||
@@ -493,7 +580,7 @@ export default function useTurnByTurn({
     const api = mapsApiRef.current
     const path = nav?.model.path ?? selectedRoute?.path
     if (!map || !api || !path?.length) return
-    setFollow(false)
+    setCamera({ mode: 'overview', heading: null })
     // A vector map is turned and tilted while following: flat and north-up first.
     cancelAnimationFrame(map.__pathiqGlide ?? 0)
     if (map.getRenderingType?.() === 'VECTOR') map.moveCamera({ heading: 0, tilt: 0 })
@@ -503,13 +590,54 @@ export default function useTurnByTurn({
     // and of the part of the heading-up canvas that's off screen.
     const over = canvasOverflow()
     const top = (document.querySelector('.nav-top')?.offsetHeight ?? 110) + 32 + over.y
-    const bottom = (document.querySelector('.nav-bottom')?.offsetHeight ?? 140) + 32 + over.y
+    const bottom = (document.querySelector('.trip-card')?.offsetHeight ?? 140) + 32 + over.y
     map.fitBounds(bounds, { top, bottom, left: 40 + over.x, right: 40 + over.x })
   }
   function recentre() {
-    setFollow(true)
+    setCamera({ mode: 'follow', heading: null })
     followCamera(driver?.pos ?? livePos, driver?.heading ?? null, { zoom: true })
   }
+  // The driver moved the map: stop following, but keep facing the same way.
+  function freeLook() {
+    setCamera((c) => (c.mode === 'follow' ? { mode: 'free', heading: driver?.heading ?? null } : c))
+  }
+  const mapHeading = !navActive
+    ? null
+    : camera.mode === 'follow'
+      ? driver?.heading ?? null
+      : camera.mode === 'free'
+        ? camera.heading
+        : null
+
+  // Reports on this route to ask about: whenever the route changes, and
+  // every few minutes in case drivers have reported something new.
+  const confirmModel = navActive ? nav.model : null
+  useEffect(() => {
+    if (!confirmModel) return
+    let cancelled = false
+    const load = () =>
+      fetchReportsToConfirm(confirmModel.path)
+        .then((rows) => !cancelled && setToConfirm(rows.map((r) => ({ ...r, atS: r.route_fraction * confirmModel.total }))))
+        .catch(() => {}) // a convenience: navigation works without it
+    load()
+    const timer = setInterval(load, CONFIRM_REFRESH_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [confirmModel])
+  const promptKey = confirmPrompt?.key
+  useEffect(() => {
+    if (!promptKey) return
+    const timer = setTimeout(() => setConfirmPrompt((p) => (p?.key === promptKey ? null : p)), CONFIRM_SHOW_MS)
+    return () => clearTimeout(timer)
+  }, [promptKey])
+  const noticeKey = reportNotice?.key
+  useEffect(() => {
+    if (!noticeKey) return
+    const timer = setTimeout(() => setReportNotice((n) => (n?.key === noticeKey ? null : n)), REPORT_NOTICE_MS)
+    return () => clearTimeout(timer)
+  }, [noticeKey])
 
   // Everything ahead, for the "Ahead" strip and list; recomputed per fix.
   const s = nav?.step?.s
@@ -530,7 +658,9 @@ export default function useTurnByTurn({
     gemAlert,
     reportAlert,
     follow,
-    setFollow,
+    camera: camera.mode,
+    mapHeading,
+    freeLook,
     navError,
     setNavError,
     muted,
@@ -540,5 +670,11 @@ export default function useTurnByTurn({
     onFix,
     showOverview,
     recentre,
+    confirmPrompt,
+    answerPrompt,
+    dismissPrompt: () => setConfirmPrompt(null),
+    reportHere,
+    reporting,
+    reportNotice,
   }
 }

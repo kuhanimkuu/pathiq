@@ -1,10 +1,15 @@
-import { useState } from 'react'
-import { Flag, Volume2, VolumeX, X, List, Radar, TrafficCone, MapPin, Sparkles } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  Flag, Volume2, VolumeX, X, List, Radar, TrafficCone, MapPin, Sparkles, MessageSquareWarning, PictureInPicture2,
+} from 'lucide-react'
 import { formatDuration } from '../lib/routePlanning'
 import { formatDistance } from '../lib/navigation'
 import { describeAhead, headlineAhead } from '../lib/routeAhead'
+import { QUICK_REPORT_TYPES, reportTypeLabel } from '../lib/roadReports'
+import { pipSupported, createPipNavigator } from '../lib/pipNavigator'
 import ManeuverIcon from './ManeuverIcon'
 import DirectionsList from './DirectionsList'
+import TripCard from './TripCard'
 import { GemBadge, ReportBadge } from './PlaceIcons'
 
 // The icon for one thing ahead on the route (lib/routeAhead.js).
@@ -82,22 +87,122 @@ function AheadList({ items, briefing, onRead, onClose }) {
   )
 }
 
+// Report what you see, where you are: big targets, one tap each.
+function ReportPicker({ busy, onPick, onClose }) {
+  return (
+    <div className="directions nav-report-picker" role="dialog" aria-label="Report on the road">
+      <div className="directions-head">
+        <span>What do you see?</span>
+        <button className="nav-icon-btn" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
+      </div>
+      <div className="nav-report-grid">
+        {QUICK_REPORT_TYPES.map((type) => (
+          <button key={type} className="nav-report-type" disabled={busy} onClick={() => onPick(type)}>
+            <ReportBadge type={type} severity={type === 'closure' || type === 'incident' ? 4 : 3} size={38} />
+            <span>{reportTypeLabel(type)}</span>
+          </button>
+        ))}
+      </div>
+      <p className="nav-ahead-source">
+        Reported where you are now. It shows for other drivers once PathIQ is sure: more drivers, signed-in and
+        regular drivers, and live traffic all count.
+      </p>
+    </div>
+  )
+}
+
+// "Still there?" about a report just passed (useTurnByTurn).
+function ConfirmPrompt({ prompt, onAnswer, onDismiss }) {
+  const { report } = prompt
+  return (
+    <div className="nav-gem-alert nav-confirm" role="alert">
+      <ReportBadge type={report.type} severity={report.severity} size={36} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="nav-gem-alert-kicker">{report.live ? 'Reported here' : 'A driver reported'}</div>
+        <div className="nav-gem-alert-name">{reportTypeLabel(report.type)}: still there?</div>
+      </div>
+      <button className="nav-confirm-btn yes" onClick={() => onAnswer(true)}>
+        Yes
+      </button>
+      <button className="nav-confirm-btn" onClick={() => onAnswer(false)}>
+        No
+      </button>
+      <button className="nav-confirm-close" onClick={onDismiss} aria-label="Not sure">
+        <X size={14} />
+      </button>
+    </div>
+  )
+}
+
 // Everything the voice says, also on screen, like Google Maps: the next
 // manoeuvre with its distance and Google's extra detail, a "Then …" preview
 // when two turns come close together, and the full written directions.
 // `nextStop` is the next stop on the way ({ name, left }: stops still to go).
 // `ahead` is what's coming up on the route (lib/routeAhead.js): the nearest
-// thing sits just above the footer, and the Ahead button lists the rest.
+// thing is at the top of the trip card, and the Ahead button lists the rest.
 // `briefing` is the latest spoken briefing (useTurnByTurn): shown under the
 // banner while it's new, and at the top of the Ahead list.
-function NavigationHud({ step, steps = [], destinationName, nextStop, ahead = [], briefing, onReadAhead, muted, onToggleMute, onEnd, status, aside, children }) {
-  const [panel, setPanel] = useState(null) // 'steps' | 'ahead' | null
+// The trip card floats over the map and can be moved or shrunk (TripCard);
+// `cameraButton` (Overview / Re-centre) sits in its top strip. Report /
+// `confirmPrompt` are the live road reports (lib/roadReports.js). Float opens
+// the picture-in-picture window (lib/pipNavigator.js).
+function NavigationHud({
+  step, steps = [], destinationName, nextStop, ahead = [], briefing, onReadAhead, muted, onToggleMute, onEnd, status,
+  cameraButton, onReport, reporting, reportNotice, confirmPrompt, onAnswerPrompt, onDismissPrompt, children,
+}) {
+  const [panel, setPanel] = useState(null) // 'steps' | 'ahead' | 'report' | null
   const showSteps = panel === 'steps'
   const toggle = (name) => setPanel((p) => (p === name ? null : name))
   const nextAhead = status === 'active' ? headlineAhead(ahead) : null
   const arrivalTime = step
     ? new Date(step.computedAt + step.remainingS * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null
+  const eta = step && status !== 'arrived' ? formatDuration(step.remainingS) : null
+
+  // The floating window: made once per trip, kept in step with the banner.
+  const bannerIconRef = useRef(null)
+  const pipRef = useRef(null)
+  const [pipOpen, setPipOpen] = useState(false)
+  const canFloat = pipSupported()
+  useEffect(() => {
+    if (!canFloat) return
+    const pip = createPipNavigator({ onChange: setPipOpen })
+    pipRef.current = pip
+    pip.start()
+    // Try to float on leaving the app; browsers that need a tap refuse quietly.
+    const onHide = () => document.visibilityState === 'hidden' && pip.open()
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      pip.destroy()
+      pipRef.current = null
+    }
+  }, [canFloat])
+  const alertText = confirmPrompt
+    ? `${reportTypeLabel(confirmPrompt.report.type)} reported here`
+    : nextAhead
+      ? `${describeAhead(nextAhead).title}`
+      : ''
+  useEffect(() => {
+    const svg = bannerIconRef.current?.querySelector('svg')
+    const markup = svg ? new XMLSerializer().serializeToString(svg).replaceAll('currentColor', '#FFFFFF') : null
+    pipRef.current?.update(
+      status === 'arrived'
+        ? { distance: 'Arrived', instruction: destinationName, iconSvg: markup, eta: '', sub: '' }
+        : status === 'rerouting' || !step
+          ? { distance: '', instruction: status === 'rerouting' ? 'Rerouting…' : 'Waiting for GPS…', iconSvg: null, eta: '', sub: destinationName }
+          : {
+              distance: formatDistance(step.toNextM),
+              instruction: step.nextInstruction,
+              iconSvg: markup,
+              eta,
+              sub: `${formatDistance(step.remainingM)} · arrive ${arrivalTime}`,
+              alert: alertText,
+            },
+    )
+  })
 
   return (
     <>
@@ -105,7 +210,7 @@ function NavigationHud({ step, steps = [], destinationName, nextStop, ahead = []
         <div className="nav-banner" role="status" aria-live="polite">
           {status === 'arrived' ? (
             <>
-              <div className="nav-banner-icon"><Flag size={26} /></div>
+              <div className="nav-banner-icon" ref={bannerIconRef}><Flag size={26} /></div>
               <div>
                 <div className="nav-banner-distance">You&apos;ve arrived</div>
                 <div className="nav-banner-instruction">{destinationName}</div>
@@ -117,7 +222,7 @@ function NavigationHud({ step, steps = [], destinationName, nextStop, ahead = []
             <div className="nav-banner-instruction" style={{ fontSize: 16 }}>Waiting for GPS…</div>
           ) : (
             <>
-              <div className="nav-banner-icon"><ManeuverIcon maneuver={step.nextManeuver} size={26} /></div>
+              <div className="nav-banner-icon" ref={bannerIconRef}><ManeuverIcon maneuver={step.nextManeuver} size={26} /></div>
               <div style={{ minWidth: 0 }}>
                 <div className="nav-banner-distance">{formatDistance(step.toNextM)}</div>
                 <div className="nav-banner-instruction">{step.nextInstruction}</div>
@@ -132,6 +237,14 @@ function NavigationHud({ step, steps = [], destinationName, nextStop, ahead = []
           </div>
         )}
         {status === 'active' && panel !== 'ahead' && (briefing?.loading || briefing?.fresh) && <BriefingCard briefing={briefing} />}
+        {status === 'active' && confirmPrompt && (
+          <ConfirmPrompt prompt={confirmPrompt} onAnswer={onAnswerPrompt} onDismiss={onDismissPrompt} />
+        )}
+        {reportNotice && (
+          <div className={'nav-report-notice' + (reportNotice.error ? ' error' : '')} role="status">
+            {reportNotice.text}
+          </div>
+        )}
         {children}
       </div>
 
@@ -146,66 +259,99 @@ function NavigationHud({ step, steps = [], destinationName, nextStop, ahead = []
       {panel === 'ahead' && status !== 'arrived' && (
         <AheadList items={ahead} briefing={briefing} onRead={onReadAhead} onClose={() => setPanel(null)} />
       )}
-
-      {/* `aside` (Overview / Re-centre) sits on top of the footer, whatever its height. */}
-      <div className="nav-bottom">
-      {aside}
-      {nextAhead && panel == null && (
-        <button className="nav-ahead" onClick={() => setPanel('ahead')} aria-label="Ahead on your route: show all">
-          <AheadIcon item={nextAhead} size={30} />
-          <span style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
-            <span className="nav-ahead-kicker">Ahead</span>
-            <span className="nav-ahead-title">{describeAhead(nextAhead).title}</span>
-            <span className="nav-ahead-sub">{describeAhead(nextAhead).sub}</span>
-          </span>
-          {ahead.length > 1 && <span className="nav-ahead-more">+{ahead.length - 1}</span>}
-        </button>
+      {panel === 'report' && status !== 'arrived' && (
+        <ReportPicker
+          busy={reporting}
+          onClose={() => setPanel(null)}
+          onPick={(type) => {
+            setPanel(null)
+            onReport(type)
+          }}
+        />
       )}
-      <div className="nav-footer">
-        <div style={{ minWidth: 0 }}>
-          {step && status !== 'arrived' ? (
-            <>
-              <div className="nav-footer-eta">
-                {formatDuration(step.remainingS)} <span>· {formatDistance(step.remainingM)} · arrive {arrivalTime}</span>
-              </div>
-              <div className="nav-footer-dest">
-                {nextStop
-                  ? `Next stop: ${nextStop.name}${nextStop.left > 1 ? ` (+${nextStop.left - 1} more)` : ''} · then ${destinationName}`
-                  : `to ${destinationName}`}
-              </div>
-            </>
-          ) : (
-            <div className="nav-footer-dest">{destinationName}</div>
+
+      <TripCard
+        summary={eta ? `${eta} · ${formatDistance(step.remainingM)}` : destinationName}
+        header={status !== 'arrived' && cameraButton}
+      >
+        {nextAhead && panel == null && (
+          <button className="nav-ahead" onClick={() => setPanel('ahead')} aria-label="Ahead on your route: show all">
+            <AheadIcon item={nextAhead} size={30} />
+            <span style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+              <span className="nav-ahead-kicker">Ahead</span>
+              <span className="nav-ahead-title">{describeAhead(nextAhead).title}</span>
+              <span className="nav-ahead-sub">{describeAhead(nextAhead).sub}</span>
+            </span>
+            {ahead.length > 1 && <span className="nav-ahead-more">+{ahead.length - 1}</span>}
+          </button>
+        )}
+        <div className="nav-footer">
+          <div style={{ minWidth: 0 }}>
+            {eta ? (
+              <>
+                <div className="nav-footer-eta">
+                  {eta} <span>· {formatDistance(step.remainingM)} · arrive {arrivalTime}</span>
+                </div>
+                <div className="nav-footer-dest">
+                  {nextStop
+                    ? `Next stop: ${nextStop.name}${nextStop.left > 1 ? ` (+${nextStop.left - 1} more)` : ''} · then ${destinationName}`
+                    : `to ${destinationName}`}
+                </div>
+              </>
+            ) : (
+              <div className="nav-footer-dest">{destinationName}</div>
+            )}
+          </div>
+          {status !== 'arrived' && (
+            <button
+              className={'nav-icon-btn nav-report-btn' + (panel === 'report' ? ' active' : '')}
+              onClick={() => toggle('report')}
+              aria-label="Report something on the road"
+              title="Report"
+              aria-pressed={panel === 'report'}
+            >
+              <MessageSquareWarning size={18} />
+            </button>
           )}
+          {status !== 'arrived' && (
+            <button
+              className={'nav-icon-btn' + (panel === 'ahead' ? ' active' : '')}
+              onClick={() => toggle('ahead')}
+              aria-label={panel === 'ahead' ? 'Hide what is ahead' : 'Ahead on your route'}
+              aria-pressed={panel === 'ahead'}
+            >
+              <Radar size={18} />
+            </button>
+          )}
+          {steps.length > 0 && status !== 'arrived' && (
+            <button
+              className={'nav-icon-btn' + (showSteps ? ' active' : '')}
+              onClick={() => toggle('steps')}
+              aria-label={showSteps ? 'Hide directions' : 'Show all directions'}
+              aria-pressed={showSteps}
+            >
+              <List size={18} />
+            </button>
+          )}
+          <button className="nav-icon-btn" onClick={onToggleMute} aria-label={muted ? 'Unmute voice' : 'Mute voice'}>
+            {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+          {canFloat && status !== 'arrived' && (
+            <button
+              className={'nav-icon-btn' + (pipOpen ? ' active' : '')}
+              onClick={() => (pipOpen ? pipRef.current?.close() : pipRef.current?.open())}
+              aria-label={pipOpen ? 'Close the floating window' : 'Float the directions over other apps'}
+              title="Float over other apps"
+              aria-pressed={pipOpen}
+            >
+              <PictureInPicture2 size={18} />
+            </button>
+          )}
+          <button className="nav-end-btn" onClick={onEnd}>
+            <X size={15} /> {status === 'arrived' ? 'Done' : 'End'}
+          </button>
         </div>
-        {status !== 'arrived' && (
-          <button
-            className={'nav-icon-btn' + (panel === 'ahead' ? ' active' : '')}
-            onClick={() => toggle('ahead')}
-            aria-label={panel === 'ahead' ? 'Hide what is ahead' : 'Ahead on your route'}
-            aria-pressed={panel === 'ahead'}
-          >
-            <Radar size={18} />
-          </button>
-        )}
-        {steps.length > 0 && status !== 'arrived' && (
-          <button
-            className={'nav-icon-btn' + (showSteps ? ' active' : '')}
-            onClick={() => toggle('steps')}
-            aria-label={showSteps ? 'Hide directions' : 'Show all directions'}
-            aria-pressed={showSteps}
-          >
-            <List size={18} />
-          </button>
-        )}
-        <button className="nav-icon-btn" onClick={onToggleMute} aria-label={muted ? 'Unmute voice' : 'Mute voice'}>
-          {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-        </button>
-        <button className="nav-end-btn" onClick={onEnd}>
-          <X size={15} /> {status === 'arrived' ? 'Done' : 'End'}
-        </button>
-      </div>
-      </div>
+      </TripCard>
     </>
   )
 }

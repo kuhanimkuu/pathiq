@@ -11,7 +11,9 @@ const reportTypes = [
   { value: 'flooding', label: 'Flooding' },
   { value: 'construction', label: 'Construction' },
   { value: 'surface', label: 'Road surface' },
-  { value: 'incident', label: 'Incident' },
+  { value: 'incident', label: 'Accident' },
+  { value: 'closure', label: 'Road closed' },
+  { value: 'hazard', label: 'Hazard on road' },
 ]
 
 const gemCategories = [

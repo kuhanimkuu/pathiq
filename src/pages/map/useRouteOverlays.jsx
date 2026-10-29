@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import ManeuverIcon from '../../components/ManeuverIcon'
 import { buildNavModel, slicePath, headingAt } from '../../lib/navigation'
 import { severityBand } from '../../lib/roadReports'
+import { currentTheme } from '../../lib/theme'
 import { ROUTE_COLOR, ALT_ROUTE_COLOR, TRAFFIC_COLOR } from './constants'
 
 // Road reports on the route: a dotted stretch this far either side of the
@@ -10,9 +11,21 @@ import { ROUTE_COLOR, ALT_ROUTE_COLOR, TRAFFIC_COLOR } from './constants'
 // it never reads as traffic.
 const REPORT_STRETCH_M = 120
 const SEVERITY_COLOR = { high: '#EF4444', medium: '#F59E0B', low: '#3B82F6' }
-// The road already driven, as in Google Maps: greyed out, over everything
-// else on the route (traffic, report dots, arrows), so only what's ahead stands out.
-const TRAVELLED_COLOR = '#8A9895'
+// The road already driven: grey rather than the route's colour, and fading
+// the further behind the driver it is — strongest just behind them, down to
+// a faint trace that never quite disappears, so you can still see where you
+// came from. The coloured route, its traffic and arrows only cover what's ahead.
+const FADE_BANDS = [0.8, 0.66, 0.54, 0.44, 0.36] // strength of each band behind the driver, nearest first
+const FADE_BAND_M = 80
+const FADED_OPACITY = 0.26 // everything further back
+// The bands are solid colours (the grey mixed into the map's own colour)
+// rather than see-through lines: see-through lines darken where they
+// overlap, which left a dot at every band's joint.
+function fadedColor(strength) {
+  const bg = currentTheme() === 'light' ? [0xff, 0xff, 0xff] : [0x1a, 0x26, 0x23]
+  const fg = [0x8a, 0x98, 0x95] // the driven road's grey, #8A9895
+  return '#' + fg.map((c, i) => Math.round(bg[i] + (c - bg[i]) * strength).toString(16).padStart(2, '0')).join('')
+}
 // Manoeuvres whose icon points along the road (no turn): their arrow is
 // turned to the road's direction after them, so it never points backwards.
 const ALONG_ROAD = new Set(['DEPART', 'STRAIGHT', 'NAME_CHANGE', 'MERGE'])
@@ -74,29 +87,42 @@ export default function useRouteOverlays({
     }
   }, [mapRef, mapsApiRef, mapReady, driverPos, driverHeading])
 
-  // The part of the route already driven, greyed out.
-  const travelledRef = useRef(null)
+  // The part of the route already driven, fading out behind the driver: one
+  // line for everything well behind, and a band per FADE_BANDS getting
+  // stronger towards the driver.
+  const travelledRef = useRef([])
   useEffect(() => {
     const api = mapsApiRef.current
     if (!mapReady || !api || !navModel) return
-    const line = new api.Polyline({
-      map: mapRef.current,
-      path: [],
-      strokeColor: TRAVELLED_COLOR,
-      strokeOpacity: 1,
-      strokeWeight: 8,
-      zIndex: 6,
-      clickable: false,
-    })
-    travelledRef.current = line
+    const lines = [FADED_OPACITY, ...[...FADE_BANDS].reverse()].map(
+      (strength, i) =>
+        new api.Polyline({
+          map: mapRef.current,
+          path: [],
+          strokeColor: fadedColor(strength),
+          strokeOpacity: 1,
+          strokeWeight: 7,
+          zIndex: 6 + i * 0.01,
+          clickable: false,
+        }),
+    )
+    travelledRef.current = lines
     return () => {
-      line.setMap(null)
-      travelledRef.current = null
+      lines.forEach((l) => l.setMap(null))
+      travelledRef.current = []
     }
   }, [mapRef, mapsApiRef, mapReady, navModel])
   useEffect(() => {
-    if (!travelledRef.current || !navModel) return
-    travelledRef.current.setPath(travelledM > 0 ? slicePath(navModel, 0, travelledM) : [])
+    const lines = travelledRef.current
+    if (!lines.length || !navModel) return
+    const bands = FADE_BANDS.length
+    const fadeStart = travelledM - bands * FADE_BAND_M
+    // lines[0]: start → fadeStart; lines[1..]: the bands, furthest first.
+    lines[0].setPath(fadeStart > 0 ? slicePath(navModel, 0, fadeStart) : [])
+    for (let i = 0; i < bands; i++) {
+      const from = fadeStart + i * FADE_BAND_M
+      lines[i + 1].setPath(slicePath(navModel, Math.max(0, from), Math.min(travelledM, from + FADE_BAND_M)))
+    }
   }, [navModel, travelledM])
 
   // Google's live traffic, as an optional layer under ours.
@@ -152,6 +178,9 @@ export default function useRouteOverlays({
   useEffect(() => {
     selectRef.current = onSelectRoute
   })
+  // The selected route's own lines, so navigation can trim them to what's
+  // still ahead: { path, cum, parts: [{ line, fromS, toS }] }.
+  const selectedLinesRef = useRef(null)
   useEffect(() => {
     const map = mapRef.current
     const api = mapsApiRef.current
@@ -170,18 +199,21 @@ export default function useRouteOverlays({
         })
         base.addListener('click', () => selectRef.current(option.id))
         if (!isSelected) return [base]
+        const { cum, total } = buildNavModel(option)
+        const at = (i) => cum[Math.min(i, cum.length - 1)] ?? total
         // Traffic on the selected route, over the base line.
-        const traffic = (option.traffic ?? []).map(
-          (t) =>
-            new api.Polyline({
-              map,
-              path: option.path.slice(t.from, t.to + 1),
-              strokeColor: TRAFFIC_COLOR[t.speed],
-              strokeOpacity: 1,
-              strokeWeight: 7,
-              zIndex: 3,
-            }),
-        )
+        const traffic = (option.traffic ?? []).map((t) => ({
+          line: new api.Polyline({
+            map,
+            path: option.path.slice(t.from, t.to + 1),
+            strokeColor: TRAFFIC_COLOR[t.speed],
+            strokeOpacity: 1,
+            strokeWeight: 7,
+            zIndex: 3,
+          }),
+          fromS: at(t.from),
+          toS: at(t.to),
+        }))
         // Direction arrows along the whole route, on top of everything.
         const arrows = new api.Polyline({
           map,
@@ -198,10 +230,25 @@ export default function useRouteOverlays({
             },
           ],
         })
-        return [base, ...traffic, arrows]
+        selectedLinesRef.current = {
+          path: option.path,
+          parts: [{ line: base, fromS: 0, toS: total }, ...traffic, { line: arrows, fromS: 0, toS: total }],
+        }
+        return [base, ...traffic.map((t) => t.line), arrows]
       })
-    return () => lines.forEach((l) => l.setMap(null))
+    return () => {
+      selectedLinesRef.current = null
+      lines.forEach((l) => l.setMap(null))
+    }
   }, [mapRef, mapsApiRef, mapReady, plan, followingRoute])
+
+  // While navigating, the coloured route, its traffic and its arrows start at
+  // the driver; behind them is the fading trace above.
+  useEffect(() => {
+    const sel = selectedLinesRef.current
+    if (!sel || !navModel || navModel.path !== sel.path) return
+    sel.parts.forEach(({ line, fromS, toS }) => line.setPath(slicePath(navModel, Math.max(fromS, travelledM), toS)))
+  }, [navModel, travelledM, plan, followingRoute])
 
   // Turn icons at each manoeuvre of the selected route (shown at street level).
   // Each is turned to the road: a turn icon's "up" is the way you arrive, and
@@ -214,16 +261,22 @@ export default function useRouteOverlays({
     const created = selectedRoute.steps.map((step, i) => {
       if (i === 0) return null // the start: the driver's own arrow is there
       const s = selectedModel.stepEnds[i - 1]
-      const bearing = ALONG_ROAD.has(step.maneuver) ? headingAt(selectedModel, s, 0, 30) : headingAt(selectedModel, s, 30, 0)
+      // Getting on a bus or train: the vehicle, upright, not a direction.
+      const transit = step.maneuver?.startsWith('TRANSIT_')
+      const bearing = transit
+        ? 0
+        : ALONG_ROAD.has(step.maneuver)
+          ? headingAt(selectedModel, s, 0, 30)
+          : headingAt(selectedModel, s, 30, 0)
       const el = document.createElement('div')
-      el.className = 'maneuver-marker'
+      el.className = 'maneuver-marker' + (transit ? ' transit' : '')
       el.title = step.instruction
       el.style.setProperty('--bearing', `${bearing ?? 0}deg`)
       const root = createRoot(el)
       root.render(<ManeuverIcon maneuver={step.maneuver} size={13} strokeWidth={2.5} />)
       return {
         el,
-        marker: new api.HtmlMarker({ map: mapRef.current, position: step.start, content: el, zIndex: 22, upright: false }),
+        marker: new api.HtmlMarker({ map: mapRef.current, position: step.start, content: el, zIndex: 22, upright: transit }),
         root,
       }
     })

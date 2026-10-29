@@ -2,7 +2,7 @@
 
 A snapshot of where things stand, for picking this up again on this machine or another. For the product vision and longer-term plan, see `description.md`, `features.md`, `architecture.md` and `design-brief.md`. This file is the "where are we right now" summary.
 
-Last updated: 2026-10-12.
+Last updated: 2026-10-29.
 
 ---
 
@@ -37,6 +37,28 @@ PathIQ is moving from "a navigation app" to "a maps app with navigation in it":
 - **Contact form → Admin → Messages** (badge with the count of new ones): reply by email, mark done, delete. Writes go through `submit_contact_message` only: 5 per hour per connection (counted under a hash of the IP) and 200 per hour site-wide, plus a honeypot field. Done messages are deleted after a year (pg_cron, 01:30 UTC). Privacy policy has a new "Messages you send us" section.
 - Migration `20261014000000_blog_and_contact.sql`; admin writes audited in `admin_audit_log`. Checked in PGlite (RLS for anon/user/admin, rate limit, clean-up) and in the browser against mocked data; security tests added to `npm run test:security` (not yet run on the hosted project).
   - **Needs:** run the migration in the SQL editor, check `cron.job` lists `pathiq-delete-old-contact-messages`, then `npm run test:security`. Set `CONTACT` in `LegalPages.jsx` when there's a public email (until then the policy points to the contact form).
+
+## Navigation feedback round 2: live road reports, travel modes, floating card (2026-10-29)
+
+Branch `fix/navigation-feedback`. Verified in headless Chromium at 390×780 and 1280×800 against **local** Supabase with stubbed `routes` responses; not yet on a real phone.
+
+- **Heading-up map no longer flips when you drag it.** Without a vector map ID the canvas itself is turned, and Google read drags in screen terms, so dragging went sideways and also snapped the map north-up, which made turn arrows look backwards. Now while the canvas is turned, PathIQ handles drag, pinch and wheel itself (`src/pages/map/useRotatedGestures.js`), turning the finger's movement by the map's angle. Dragging keeps the heading ('free' camera in `useTurnByTurn`); only Overview goes north-up. Fork icons now show left/right.
+- **Floating trip card** (`src/components/TripCard.jsx`): floats over the map, can be dragged by its top strip, and shrinks to an ETA pill that can also be dragged. Its position is remembered on the device. Overview / Re-centre lives in its top strip.
+- **Picture-in-picture** (`src/lib/pipNavigator.js`): the Float button puts the next turn, distance and ETA in an always-on-top window. It also tries to open by itself when you leave the app, using Chrome's automatic picture-in-picture (Media Session) and Safari's `autoPictureInPicture`. Whether that works when you press Home depends on the browser; the window's position is up to the phone OS. Background GPS on a web page isn't guaranteed, so the window may stop updating when the app is in the background.
+- **Travel modes**: Car, Motorbike, Bus, Train, Bicycle and Walk tabs, each showing its own time (`routes` function `mode` + `modeTimes`). Bus and train use Google transit and can't have stops. Transit steps read "Take the 46 bus towards …".
+  - **Cost:** the tab times are up to 5 extra time-only Google requests per new destination, cached for 10 minutes and counted in the global budget. Set `ROUTES_MODE_TIMES=false` to turn them off.
+- **The driven part of the route fades** in grey behind you instead of staying green. The coloured line, traffic and arrows only cover what's ahead.
+- **Live road reports from drivers** (migration `20261029000000_live_road_reports.sql`): Report button in the trip card, "Still there?" after passing a report, and Still there / Not there anymore in the report sheet. New types: heavy traffic, road closed, hazard. How the score works:
+  - Each driver's say is weighted by trust (`reporter_weight`): guest 0.4 (capped at 0.6), signed-in 1.0, Scout 1.4, admin 2.0. Up to +0.3 for account age and +0.4 for frequent driving, then ×0.4–1.5 for how their past reports held up.
+  - Reports of the same thing close together merge into one.
+  - Google's live traffic on routes adds evidence (`apply_traffic_evidence`, called from the `routes` function): a jam counts +1.0 and slow traffic +0.6. Free-flowing traffic counts −0.6 against a "heavy traffic" report.
+  - Every signal fades with a half-life per type (a jam in 30 minutes, a pothole in 30 days).
+  - The score is 1 − e^(−net/1.5). A report goes live at 0.55 and ends below 0.30.
+  - `review_at` is when it would fade out. A pg_cron job (`pathiq-review-live-road-reports`, every 5 minutes) re-scores reports at that time and ends the faded ones. `expires_at` stays just after `review_at`, so a report disappears even if the job doesn't run.
+  - Crowd candidates are kept out of the admin review queue.
+  - 40 new checks in `npm run test:security`, all passing locally.
+- **Needs (David):** apply the migration (`supabase db push`, or paste it in the SQL editor), deploy the routes function (`supabase functions deploy routes --use-api`), check that `cron.job` lists `pathiq-review-live-road-reports`, then run `npm run test:security` against the hosted project.
+- **Known, not from this round:** 3 location-contribution checks fail locally ("contributes only valid samples": an impossible speed is dropped instead of being stored as null). Needs a look.
 
 ## Before launch (needs a person, not code)
 

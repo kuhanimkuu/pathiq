@@ -1,6 +1,6 @@
 import {
   Landmark, BedDouble, UtensilsCrossed, Mountain, Fuel, Toilet,
-  ArrowDownToDot, Waves, Construction, Activity, Siren,
+  ArrowDownToDot, Waves, Construction, Activity, Siren, CarFront, Ban, TriangleAlert,
 } from 'lucide-react'
 import { severityBand } from './roadReports'
 
@@ -26,7 +26,10 @@ export const REPORT_STYLE = {
   flooding: { label: 'Flooding', Icon: Waves },
   construction: { label: 'Construction', Icon: Construction },
   surface: { label: 'Rough surface', Icon: Activity },
-  incident: { label: 'Accident / incident', Icon: Siren },
+  incident: { label: 'Accident', Icon: Siren },
+  traffic: { label: 'Heavy traffic', Icon: CarFront },
+  closure: { label: 'Road closed', Icon: Ban },
+  hazard: { label: 'Hazard on road', Icon: TriangleAlert },
 }
 const REPORT_FALLBACK = { label: 'Road report', Icon: Siren }
 

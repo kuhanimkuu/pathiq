@@ -1,17 +1,37 @@
 // POST /functions/v1/routes
-// Body: { origin: { lat, lng }, destination: { lat, lng }, stops?: [{ lat, lng }] }
+// Body: { origin: { lat, lng }, destination: { lat, lng }, stops?: [{ lat, lng }],
+//         mode?: 'drive' | 'two_wheeler' | 'bus' | 'train' | 'bicycle' | 'walk',
+//         modeTimes?: true }
 //
 // `stops` (up to MAX_STOPS, in order) are places to stop at on the way. With
-// stops Google returns a single route, so there's nothing to compare.
+// stops Google returns a single route, so there's nothing to compare. Bus and
+// train trips can't have stops.
 //
-// Gets driving alternatives from Google, scores each against PathIQ's verified
-// road reports, and labels them Recommended, Fastest and Best Road. Each option
-// carries its turn-by-turn steps for in-app navigation.
+// Gets alternatives from Google for the mode (driving by default), scores each
+// against PathIQ's verified road reports, and labels them Recommended, Fastest
+// and Best Road. Each option carries its turn-by-turn steps for in-app
+// navigation. Live traffic on a driving route is also passed to the live road
+// report scoring (apply_traffic_evidence) as evidence for or against what
+// drivers have reported there.
+//
+// With `modeTimes: true` it instead returns how long the trip takes by every
+// other mode — { modes: [{ mode, durationS, distanceM } | { mode, unavailable }] }
+// — for the mode tabs. Each is a cheap time-only request, cached like routes;
+// set ROUTES_MODE_TIMES=false to turn them off (the tabs then show no times).
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, json } from '../_shared/cors.ts'
-import { computeRoutes, type GoogleRoute, type LatLng } from '../_shared/google.ts'
-import { decodePolyline, toWkt } from '../_shared/polyline.ts'
+import {
+  computeModeSummary,
+  computeRoutes,
+  hasTraffic,
+  isTransit,
+  TRAVEL_MODES,
+  type GoogleRoute,
+  type LatLng,
+  type TravelMode,
+} from '../_shared/google.ts'
+import { decodePolyline, toWkt, type LngLat } from '../_shared/polyline.ts'
 import {
   isStillRelevant,
   labelRoutes,
@@ -40,6 +60,9 @@ const GLOBAL_GOOGLE_CALLS_PER_HOUR = Number(Deno.env.get('ROUTES_GLOBAL_LIMIT_PE
 // Live traffic colours on the route line. Google bills these requests at its
 // higher "Advanced" rate; set ROUTES_TRAFFIC_ON_POLYLINE=false to turn it off.
 const TRAFFIC_ON_POLYLINE = Deno.env.get('ROUTES_TRAFFIC_ON_POLYLINE') !== 'false'
+// The mode tabs' times: up to five extra (cheap, cached) Google requests per
+// destination. ROUTES_MODE_TIMES=false turns them off.
+const MODE_TIMES = Deno.env.get('ROUTES_MODE_TIMES') !== 'false'
 
 // Any real point on Earth. PathIQ works worldwide; Google's own coverage
 // decides what comes back.
@@ -68,9 +91,24 @@ const round3 = (n: number) => n.toFixed(3)
 
 const pointKey = (p: LatLng) => `${round3(p.lat)},${round3(p.lng)}`
 
-function cacheKey(origin: LatLng, destination: LatLng, stops: LatLng[]): string {
+// Driving keeps the key it always had, so cached routes stay valid.
+function cacheKey(origin: LatLng, destination: LatLng, stops: LatLng[], mode: TravelMode = 'drive', kind = ''): string {
   const bucket = Math.floor(Date.now() / CACHE_TTL_MS)
-  return [origin, ...stops, destination].map(pointKey).join('>') + `@${bucket}`
+  const prefix = (kind ? `${kind}:` : '') + (mode === 'drive' ? '' : `${mode}:`)
+  return prefix + [origin, ...stops, destination].map(pointKey).join('>') + `@${bucket}`
+}
+
+// Slow and jammed stretches of a route as one WKT MULTILINESTRING each (null
+// when there are none), for apply_traffic_evidence.
+function trafficWkt(points: LngLat[], route: GoogleRoute): { slow: string | null; jam: string | null } {
+  const lines = (speed: string) =>
+    route.traffic
+      .filter((t) => t.speed === speed)
+      .map((t) => points.slice(t.from, t.to + 1))
+      .filter((stretch) => stretch.length >= 2)
+      .map((stretch) => `(${stretch.map(([lng, lat]) => `${lng} ${lat}`).join(', ')})`)
+  const wkt = (parts: string[]) => (parts.length ? `MULTILINESTRING(${parts.join(', ')})` : null)
+  return { slow: wkt(lines('SLOW')), jam: wkt(lines('TRAFFIC_JAM')) }
 }
 
 Deno.serve(async (req) => {
@@ -94,7 +132,7 @@ Deno.serve(async (req) => {
   // The body is a handful of points; anything big is not a real request.
   if (Number(req.headers.get('content-length') ?? 0) > 4096) return json({ error: 'Body too large' }, 413)
 
-  let body: { origin?: unknown; destination?: unknown; stops?: unknown }
+  let body: { origin?: unknown; destination?: unknown; stops?: unknown; mode?: unknown; modeTimes?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -112,6 +150,11 @@ Deno.serve(async (req) => {
   const stops = rawStops.map(parsePoint)
   if (stops.some((p) => !p)) return json({ error: 'every stop needs valid numeric lat and lng' }, 400)
   const stopPoints = stops as LatLng[]
+  const mode = (body.mode ?? 'drive') as TravelMode
+  if (!TRAVEL_MODES.includes(mode)) return json({ error: `mode must be one of ${TRAVEL_MODES.join(', ')}` }, 400)
+  if (isTransit(mode) && stopPoints.length > 0) {
+    return json({ error: "Stops can't be added to a bus or train trip. Remove the stops or pick another way to travel." }, 400)
+  }
 
   // The cache and rate-limit tables are server-only, so they use the service role.
   const admin = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
@@ -142,7 +185,49 @@ Deno.serve(async (req) => {
     return tooMany('Too many route requests from this network. Please wait a few minutes and try again.')
   }
 
-  const key = cacheKey(origin, destination, stopPoints)
+  // The mode tabs: how long by every other way of travelling.
+  if (body.modeTimes === true) {
+    if (!MODE_TIMES) return json({ modes: [] })
+    const others = TRAVEL_MODES.filter((m) => m !== mode && !(isTransit(m) && stopPoints.length > 0))
+    const modes = await Promise.all(
+      others.map(async (m) => {
+        const modeKey = cacheKey(origin, destination, stopPoints, m, 'time')
+        const { data: timeHit } = await admin
+          .from('route_cache')
+          .select('response')
+          .eq('key', modeKey)
+          .gt('expires_at', new Date().toISOString())
+          .maybeSingle()
+        if (timeHit) {
+          await track('cache')
+          return { mode: m, ...(timeHit.response as object) }
+        }
+        if (!(await consume('routes:google:global', GLOBAL_GOOGLE_CALLS_PER_HOUR, '1 hour'))) {
+          await track('limited')
+          return { mode: m, unavailable: true }
+        }
+        try {
+          // Stops are kept for the road modes, so the times compare like for like.
+          const summary = await computeModeSummary(googleKey, origin, destination, m)
+          await track('google')
+          const response = summary ?? { unavailable: true }
+          await admin.from('route_cache').upsert({
+            key: modeKey,
+            response,
+            expires_at: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
+          })
+          return { mode: m, ...response }
+        } catch (error) {
+          console.error(error)
+          await track('error')
+          return { mode: m, unavailable: true }
+        }
+      }),
+    )
+    return json({ modes })
+  }
+
+  const key = cacheKey(origin, destination, stopPoints, mode)
 
   let googleRoutes: GoogleRoute[] | null = null
   let cached = false
@@ -172,13 +257,14 @@ Deno.serve(async (req) => {
       googleRoutes = await computeRoutes(googleKey, origin, destination, {
         withTraffic: TRAFFIC_ON_POLYLINE,
         stops: stopPoints,
+        mode,
       })
     } catch (error) {
       console.error(error)
       await track('error')
       return json({ error: 'Could not get routes from Google' }, 502)
     }
-    await track(TRAFFIC_ON_POLYLINE ? 'google_traffic' : 'google')
+    await track(TRAFFIC_ON_POLYLINE && hasTraffic(mode) ? 'google_traffic' : 'google')
     if (googleRoutes.length > 0) {
       await admin.from('route_cache').upsert({
         key,
@@ -191,15 +277,32 @@ Deno.serve(async (req) => {
   const usable = googleRoutes.filter((r) => r.encodedPolyline)
   if (usable.length === 0) {
     await track('error')
-    return json({ error: 'No route found' }, 404)
+    const by = { drive: '', two_wheeler: ' by motorbike', bus: ' by bus', train: ' by train', bicycle: ' by bicycle', walk: ' on foot' }
+    return json({ error: `No route found${by[mode]}` }, 404)
   }
 
-  // Road reports along each route, fetched in parallel.
+  // Road reports along each route, fetched in parallel. First, Google's live
+  // traffic on each route counts as evidence for or against what drivers
+  // have reported on it (live road reports), so the scores below already
+  // reflect it. Only when traffic was asked for: an empty list then means
+  // traffic is flowing. Never lets a problem there break routing.
   const now = Date.now()
+  const trafficKnown = TRAFFIC_ON_POLYLINE && hasTraffic(mode)
   const withReports = await Promise.all(
     usable.map(async (route, index) => {
+      const points = decodePolyline(route.encodedPolyline)
+      const routeWkt = toWkt(points)
+      if (trafficKnown) {
+        const { slow, jam } = trafficWkt(points, route)
+        const { error: evidenceError } = await admin.rpc('apply_traffic_evidence', {
+          p_route_wkt: routeWkt,
+          p_slow_wkt: slow,
+          p_jam_wkt: jam,
+        })
+        if (evidenceError) console.error('traffic evidence failed', evidenceError)
+      }
       const { data, error } = await userClient.rpc('road_reports_along_route', {
-        route_wkt: toWkt(decodePolyline(route.encodedPolyline)),
+        route_wkt: routeWkt,
         corridor_m: REPORT_CORRIDOR_M,
       })
       if (error) throw new Error(`road_reports_along_route: ${error.message}`)
@@ -241,6 +344,7 @@ Deno.serve(async (req) => {
     .map((r) => ({ ...r, live: r.reports.filter(isStillRelevant) }))
     .map((r) => ({
       id: r.id,
+      mode,
       tags: tags.get(r.id) ?? [],
       durationS: r.route.durationS,
       staticDurationS: r.route.staticDurationS,
@@ -275,5 +379,5 @@ Deno.serve(async (req) => {
     }))
     .sort((a, b) => b.scores.overall - a.scores.overall)
 
-  return json({ options, cached })
+  return json({ options, cached, mode })
 })

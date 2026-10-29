@@ -16,14 +16,57 @@ export const MAX_STOPS = 5
 
 const point = (p) => ({ lat: p.lat, lng: p.lng })
 
+// Ways to travel, in the order the mode tabs show them (the routes edge
+// function's TravelMode). `road`: shares the road with cars, so traffic and
+// road reports matter most. `transit`: Google's bus/train routing, which
+// can't take stops on the way.
+export const TRAVEL_MODES = [
+  { id: 'drive', label: 'Car', road: true },
+  { id: 'two_wheeler', label: 'Motorbike', road: true },
+  { id: 'bus', label: 'Bus', transit: true },
+  { id: 'train', label: 'Train', transit: true },
+  { id: 'bicycle', label: 'Bicycle' },
+  { id: 'walk', label: 'Walk' },
+]
+export const travelMode = (id) => TRAVEL_MODES.find((m) => m.id === id) ?? TRAVEL_MODES[0]
+
+const MODE_KEY = 'pathiq-travel-mode'
+export function loadTravelMode() {
+  try {
+    const id = localStorage.getItem(MODE_KEY)
+    return TRAVEL_MODES.some((m) => m.id === id) ? id : 'drive'
+  } catch {
+    return 'drive'
+  }
+}
+export function saveTravelMode(id) {
+  try {
+    localStorage.setItem(MODE_KEY, id)
+  } catch {
+    // still applies for this visit
+  }
+}
+
 // `stops` are places to stop at on the way, in order. With stops Google gives
-// a single route rather than alternatives.
-export async function planRoutes(origin, destination, stops = []) {
+// a single route rather than alternatives. `mode` is a TRAVEL_MODES id.
+export async function planRoutes(origin, destination, stops = [], mode = 'drive') {
   const { data, error } = await supabase.functions.invoke('routes', {
-    body: { origin: point(origin), destination: point(destination), stops: stops.map(point) },
+    body: { origin: point(origin), destination: point(destination), stops: stops.map(point), mode },
   })
   if (error) throw new Error(await edgeErrorMessage(error))
-  return data.options.map((o) => ({ ...o, path: decodePolyline(o.encodedPolyline) }))
+  // A routes function from before modes existed always drives.
+  return data.options.map((o) => ({ ...o, mode: o.mode ?? 'drive', path: decodePolyline(o.encodedPolyline) }))
+}
+
+// How long the trip takes by every mode except `mode` (already planned), for
+// the mode tabs: { [modeId]: { durationS, distanceM } | { unavailable: true } }.
+// Empty when the routes function doesn't offer it.
+export async function fetchModeTimes(origin, destination, stops = [], mode = 'drive') {
+  const { data, error } = await supabase.functions.invoke('routes', {
+    body: { origin: point(origin), destination: point(destination), stops: stops.map(point), mode, modeTimes: true },
+  })
+  if (error) throw new Error(await edgeErrorMessage(error))
+  return Object.fromEntries((data?.modes ?? []).map(({ mode: id, ...time }) => [id, time]))
 }
 
 export async function fetchRouteCorridor(path, { gemCorridorM = GEM_CORRIDOR_M } = {}) {

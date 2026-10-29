@@ -1269,23 +1269,6 @@ html.light .map-alert {
   font-weight: 700;
   cursor: pointer;
 }
-
-/* The nav footer plus anything stacked on it (Overview / Re-centre). */
-.nav-bottom {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 16px;
-  z-index: 15;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  pointer-events: none; /* the gap beside the button still drags the map */
-}
-.nav-bottom > * { pointer-events: auto; }
-.nav-bottom .nav-footer { position: static; align-self: stretch; }
-
 .nav-camera-btn {
   display: inline-flex;
   align-items: center;
@@ -2320,7 +2303,6 @@ a.map-route-here-btn { text-decoration: none; }
 @media (max-width: 899px) {
   html.driving .top-bar,
   html.driving .tab-bar { display: none; }
-  html.driving .nav-bottom { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   html.driving .nav-top { top: calc(12px + env(safe-area-inset-top, 0px)); }
 }
 
@@ -2522,3 +2504,207 @@ a.map-route-here-btn { text-decoration: none; }
    the map and keeps our markers upright, so it's the turn-with-the-map ones
    (driver's arrow, turn icons) that follow its heading. */
 .map-page.native-heading .html-marker:not(.upright) { rotate: calc(-1 * var(--map-heading, 0deg)); }
+
+/* ══════════════════════════════════
+   Floating trip card, live road reports, travel modes
+   ══════════════════════════════════ */
+
+/* The trip card (components/TripCard.jsx) floats over the map; dragged
+   somewhere, it's placed by left/top instead of this default spot. */
+.trip-card {
+  position: absolute;
+  left: 12px;
+  width: min(460px, calc(100% - 24px));
+  box-sizing: border-box;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 8px 8px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(6px);
+}
+.trip-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  cursor: grab;
+  touch-action: none; /* the drag is ours, not a page scroll */
+  user-select: none;
+}
+.trip-card-head:active { cursor: grabbing; }
+.trip-card-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 28px;
+  border-radius: 99px;
+  color: var(--muted-foreground);
+}
+.trip-card-head-actions { display: inline-flex; align-items: center; gap: 6px; }
+.trip-card-head .nav-camera-btn { height: 32px; padding: 0 12px; font-size: 12.5px; box-shadow: none; }
+.trip-card .nav-ahead { max-width: none; box-shadow: none; background: var(--secondary); }
+.trip-card .nav-footer {
+  position: static;
+  flex-wrap: wrap; /* the trip summary on its own line, buttons under it */
+  row-gap: 8px;
+  padding: 4px 6px 2px 10px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.trip-card .nav-footer > div { flex-basis: 100%; }
+.trip-card .nav-footer .nav-end-btn { margin-left: auto; }
+.trip-card.minimized {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  padding: 6px 6px 6px 4px;
+  border-radius: 99px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.trip-card-summary {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary);
+  white-space: nowrap;
+}
+.nav-icon-btn.small { width: 32px; height: 32px; border-radius: 99px; }
+.nav-icon-btn.active { border-color: var(--primary); color: var(--primary); }
+.nav-report-btn { color: var(--amber); }
+
+/* Report what you see (NavigationHud ReportPicker). */
+.nav-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  padding: 12px 14px 4px;
+  overflow-y: auto;
+}
+.nav-report-type {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 84px;
+  padding: 10px 6px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nav-report-type:disabled { opacity: 0.5; }
+
+/* "Still there?" and the thanks after reporting. */
+.nav-confirm { border-color: var(--primary); gap: 8px; }
+.nav-confirm .nav-gem-alert-kicker { color: var(--primary); }
+.nav-confirm .nav-gem-alert-name { white-space: normal; }
+.nav-confirm-btn {
+  height: 40px;
+  min-width: 52px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.nav-confirm-btn.yes { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.nav-confirm-close {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  padding: 2px;
+}
+.nav-report-notice {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border));
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.nav-report-notice.error { border-color: var(--red); }
+
+/* A report's standing in its sheet (FeatureSheet ReportStatus). */
+.report-status { margin-top: 10px; }
+.report-status-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted-foreground); }
+.report-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.report-status-thanks { margin-top: 8px; font-size: 12.5px; color: var(--primary); }
+
+/* How you're travelling (RoutePanel ModeTabs). */
+.route-mode-tabs {
+  display: flex;
+  gap: 4px;
+  margin: -2px -4px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.route-mode-tabs::-webkit-scrollbar { display: none; }
+.route-mode-tab {
+  flex: 1 0 auto;
+  min-width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 7px 6px 6px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  cursor: pointer;
+}
+.route-mode-tab.active {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+  color: var(--primary);
+}
+.route-mode-tab:disabled { opacity: 0.45; cursor: default; }
+.route-mode-label { font-size: 11px; font-weight: 600; }
+.route-mode-time { min-height: 14px; font-size: 11.5px; font-weight: 700; color: var(--foreground); white-space: nowrap; }
+.route-mode-tab.active .route-mode-time { color: var(--primary); }
+
+/* A turned (heading-up) canvas takes its own drags and pinches
+   (map/useRotatedGestures.js), so the browser mustn't scroll or zoom. */
+.map-page.heading-up .map-canvas { touch-action: none; }
+/* Getting on a bus or train: an upright vehicle, not a turn arrow. */
+.maneuver-marker.transit { border-color: #3B82F6; }
+/* Phones: icon and time only, as in Google Maps, so all six fit. */
+@media (max-width: 480px) {
+  .route-mode-tab { flex: 1 1 0; min-width: 0; padding: 7px 2px 6px; }
+  .route-mode-label { display: none; }
+}

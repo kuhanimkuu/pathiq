@@ -8,7 +8,7 @@
 //   time         journey time compared with the fastest alternative
 //   overall      weighted blend of the four
 
-export type ReportType = 'pothole' | 'flooding' | 'construction' | 'surface' | 'incident'
+export type ReportType = 'pothole' | 'flooding' | 'construction' | 'surface' | 'incident' | 'traffic' | 'closure' | 'hazard'
 export type RouteTag = 'recommended' | 'fastest' | 'best_road'
 
 export interface RoadReport {
@@ -41,6 +41,9 @@ export const BASE_PENALTY: Record<ReportType, number> = {
   construction: 10,
   flooding: 20,
   incident: 15,
+  traffic: 12,
+  closure: 40,
+  hazard: 10,
 }
 
 // A report's weight halves every this many days.
@@ -50,10 +53,15 @@ export const HALF_LIFE_DAYS: Record<ReportType, number> = {
   construction: 30,
   flooding: 2,
   incident: 0.25,
+  // Drivers' live reports (see 20261029000000_live_road_reports.sql): aged
+  // from their last confirmation, so these only fade once nobody backs them.
+  traffic: 0.02,
+  closure: 0.17,
+  hazard: 0.04,
 }
 
 const ROAD_TYPES: ReportType[] = ['pothole', 'surface']
-const INCIDENT_TYPES: ReportType[] = ['construction', 'flooding', 'incident']
+const INCIDENT_TYPES: ReportType[] = ['construction', 'flooding', 'incident', 'traffic', 'closure', 'hazard']
 
 export const WEIGHTS = { roadQuality: 0.35, traffic: 0.2, incidents: 0.2, time: 0.25 }
 

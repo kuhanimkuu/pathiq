@@ -8,7 +8,9 @@ import {
 } from '../lib/gems'
 import { locationHelp } from '../lib/locationHelp'
 import { fetchNearbyRoadReports } from '../lib/roadReports'
-import { planRoutes, fetchRouteCorridor, formatDuration, MAX_STOPS } from '../lib/routePlanning'
+import {
+  planRoutes, fetchRouteCorridor, fetchModeTimes, formatDuration, MAX_STOPS, loadTravelMode, saveTravelMode,
+} from '../lib/routePlanning'
 import { loadGoogleMaps, createPathiqMap, watchVector, AUTH_FAILURE_EVENT, mapsAuthFailed } from '../lib/googleMaps'
 import { buildNavModel, distanceM, formatDistance, slicePath, headingAt } from '../lib/navigation'
 import { loadActiveTrip } from '../lib/activeTrip'
@@ -33,6 +35,7 @@ import useGooglePlaces from './map/useGooglePlaces'
 import useMapMarkers from './map/useMapMarkers'
 import useRouteOverlays from './map/useRouteOverlays'
 import useTurnByTurn from './map/useTurnByTurn'
+import useRotatedGestures from './map/useRotatedGestures'
 
 const RADIUS_M = 5000
 const VIEW_MAX_RADIUS_M = 30_000 // PathIQ gems/reports for the area on screen: at most this far out
@@ -107,8 +110,13 @@ function MapPage() {
   // Stepping through the directions by hand (no GPS): { index }
   const [preview, setPreview] = useState(null)
   // Planned routes for `draft`: { origin, fromMe, stops, destination,
-  // destinationName, options, selectedId }
+  // destinationName, options, selectedId, mode }
   const [plan, setPlan] = useState(null)
+  // How the driver is getting there (lib/routePlanning TRAVEL_MODES), kept
+  // between visits, and how long the trip takes by each mode for the tabs:
+  // { key, times: { [mode]: { durationS } | { unavailable } } }.
+  const [travelMode, setTravelMode] = useState(loadTravelMode)
+  const [modeTimes, setModeTimes] = useState({ key: null, times: {} })
   const [corridor, setCorridor] = useState({ routeId: null, gems: [] })
   // Read once per visit: they're changed on the Profile page.
   const [alertPrefs, setAlertPrefs] = useState(loadAlertPrefs)
@@ -221,6 +229,18 @@ function MapPage() {
       setDraft((d) => d && { ...d, from: ME, stops })
     },
     onTripStarted: loadQuickPicks,
+    // A report went live or ended: show the map as it is now around the driver.
+    onReportsChanged: () => {
+      const at = latest.current.position
+      if (!at) return
+      fetchNearbyRoadReports(at.lat, at.lng, RADIUS_M)
+        .then((rows) => {
+          const ids = new Set(rows.map((r) => r.id))
+          // Reports near the driver that are no longer live drop off.
+          setIncidents((prev) => [...prev.filter((r) => ids.has(r.id) || distanceM(r, at) > RADIUS_M), ...rows.filter((r) => !prev.some((p) => p.id === r.id))])
+        })
+        .catch(() => {})
+    },
   })
   const { nav, navActive, follow } = turn
 
@@ -346,7 +366,7 @@ function MapPage() {
 
   // Sets the route being planned and, once it has a start and a destination,
   // plans it. Resolves to the chosen route option, or null.
-  async function planDraft(next, preferredRouteId = null) {
+  async function planDraft(next, preferredRouteId = null, mode = travelMode) {
     const seq = ++planSeqRef.current
     setDraft(next)
     setRouteError('')
@@ -382,7 +402,7 @@ function MapPage() {
       }
       const [origin, ...rest] = points
       const destination = rest.pop()
-      const options = await planRoutes(origin, destination, rest)
+      const options = await planRoutes(origin, destination, rest, mode)
       if (seq !== planSeqRef.current) return null
       // A routes function from before stops existed ignores them; don't show
       // a route that silently skips the driver's stops.
@@ -398,6 +418,7 @@ function MapPage() {
         destinationName: destination.name,
         options,
         selectedId: option.id,
+        mode,
       })
       return option
     } catch (err) {
@@ -412,9 +433,17 @@ function MapPage() {
 
   // Directions to somewhere (search, a place's sheet, History), keeping the
   // start and stops already chosen. Starts from your location when it's on.
-  function planTo(to, name = 'Dropped pin', preferredRouteId = null, stops = null) {
+  function planTo(to, name = 'Dropped pin', preferredRouteId = null, stops = null, mode = travelMode) {
     const base = draft ?? { from: livePos ? ME : null, stops: [] }
-    return planDraft({ ...base, stops: stops ?? base.stops, to: { lat: to.lat, lng: to.lng, name } }, preferredRouteId)
+    return planDraft({ ...base, stops: stops ?? base.stops, to: { lat: to.lat, lng: to.lng, name } }, preferredRouteId, mode)
+  }
+
+  // A mode tab: plan the same trip that way (and remember it for next time).
+  function chooseMode(mode) {
+    if (mode === travelMode && plan?.mode === mode) return
+    setTravelMode(mode)
+    saveTravelMode(mode)
+    if (draft?.from && draft?.to) planDraft(draft, null, mode)
   }
 
   // Put a chosen place into one of the route editor's points.
@@ -467,8 +496,9 @@ function MapPage() {
 
   // Plan the route to a trip's destination (with its remaining stops) and,
   // when `drive` is set, start navigating it at once.
-  function planAndMaybeStart({ to, name, routeId = null, stops = [], drive }) {
-    return planTo(to, name, routeId, stops).then((option) => {
+  function planAndMaybeStart({ to, name, routeId = null, stops = [], drive, mode = travelMode }) {
+    if (mode !== travelMode) setTravelMode(mode)
+    return planTo(to, name, routeId, stops, mode).then((option) => {
       if (option && drive) startNavigation(option, { destination: to, destinationName: name, stops })
     })
   }
@@ -476,7 +506,14 @@ function MapPage() {
   function resumeTrip() {
     const trip = resumable
     if (!trip) return
-    planAndMaybeStart({ to: trip.destination, name: trip.destinationName, routeId: trip.routeId, stops: trip.stops ?? [], drive: true })
+    planAndMaybeStart({
+      to: trip.destination,
+      name: trip.destinationName,
+      routeId: trip.routeId,
+      stops: trip.stops ?? [],
+      drive: true,
+      mode: trip.mode ?? 'drive',
+    })
   }
 
   function handleFix(pos) {
@@ -500,7 +537,7 @@ function MapPage() {
   // through this ref so they always reach the current render's functions.
   const latest = useRef({})
   useEffect(() => {
-    latest.current = { planAndMaybeStart, handleFix, fillSlot, nav, preview, picking, position, setFollow: turn.setFollow }
+    latest.current = { planAndMaybeStart, handleFix, fillSlot, nav, preview, picking, position, freeLook: turn.freeLook }
   })
 
   // Create the map once we know where the driver is (or that location is off).
@@ -535,7 +572,7 @@ function MapPage() {
         map.addListener('zoom_changed', syncZoomClass)
         syncZoomClass()
         map.addListener('dragstart', () => {
-          latest.current.setFollow(false)
+          latest.current.freeLook()
           setRouteDetails(false)
         })
         // What's on screen, once the map settles: gems and reports are
@@ -658,6 +695,28 @@ function MapPage() {
       setNotice(locationHelp(reason).title)
     }
   }
+
+  // The mode tabs' times: asked once per trip (from, stops, to), however
+  // often the driver flips between modes; the mode just planned uses the
+  // fastest of its own routes.
+  const tripKey = plan ? [plan.origin, ...plan.stops, plan.destination].map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join('>') : null
+  const planMode = plan?.mode
+  const planFastestS = plan ? Math.min(...plan.options.map((o) => o.durationS)) : null
+  const timesKeyRef = useRef(null)
+  useEffect(() => {
+    if (!tripKey || !plan || timesKeyRef.current === tripKey) return
+    timesKeyRef.current = tripKey
+    const first = { [plan.mode]: { durationS: planFastestS } }
+    fetchModeTimes(plan.origin, plan.destination, plan.stops, plan.mode)
+      .then((times) => setModeTimes({ key: tripKey, times: { ...times, ...first } }))
+      .catch(() => setModeTimes({ key: tripKey, times: first })) // the tabs still work, just without times
+    // Only when the trip itself changes, not each re-plan of it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripKey])
+  const shownModeTimes = useMemo(
+    () => ({ ...(modeTimes.key === tripKey ? modeTimes.times : {}), ...(planMode ? { [planMode]: { durationS: planFastestS } } : {}) }),
+    [modeTimes, tripKey, planMode, planFastestS],
+  )
 
   // Gems/reports along whichever route is selected, on its real geometry.
   useEffect(() => {
@@ -865,11 +924,24 @@ function MapPage() {
   }, [mapReady, previewStep, previewHeading])
 
   // Heading-up, like Google Maps: while following a route the map turns so the
-  // way you're going is up the screen (camera.js). North-up again once the
-  // driver drags the map or asks for the overview.
+  // way you're going is up the screen (camera.js). Moving the map keeps it
+  // turned the way it was (useTurnByTurn's 'free' camera); only the overview
+  // goes back to north-up.
   const headingUp = navActive || preview != null
-  const mapHeading = navActive ? (follow ? turn.driver?.heading ?? null : null) : preview != null ? previewHeading : null
+  const mapHeading = navActive ? turn.mapHeading : preview != null ? previewHeading : null
   const rotationRef = useRef(0)
+  // Dragging a turned canvas needs PathIQ's own gestures (useRotatedGestures).
+  const canvasAngle = headingUp && !nativeHeading && mapHeading != null ? mapHeading : 0
+  useRotatedGestures({
+    mapRef,
+    canvasRef: mapDivRef,
+    active: mapReady && canvasAngle % 360 !== 0,
+    angle: canvasAngle,
+    onMove: () => {
+      latest.current.freeLook()
+      setRouteDetails(false)
+    },
+  })
   useEffect(() => {
     const page = pageRef.current
     if (!page) return
@@ -980,13 +1052,17 @@ function MapPage() {
 
       {nav ? (
         <NavigationHud
-          aside={
-            nav.status !== 'arrived' && (
-              <button className="nav-camera-btn" onClick={follow ? turn.showOverview : turn.recentre}>
-                {follow ? <Eye size={15} /> : <Navigation2 size={15} />} {follow ? 'Overview' : 'Re-centre'}
-              </button>
-            )
+          cameraButton={
+            <button className="nav-camera-btn" onClick={follow ? turn.showOverview : turn.recentre}>
+              {follow ? <Eye size={15} /> : <Navigation2 size={15} />} {follow ? 'Overview' : 'Re-centre'}
+            </button>
           }
+          onReport={turn.reportHere}
+          reporting={turn.reporting}
+          reportNotice={turn.reportNotice}
+          confirmPrompt={turn.confirmPrompt}
+          onAnswerPrompt={turn.answerPrompt}
+          onDismissPrompt={turn.dismissPrompt}
           step={nav.step}
           steps={nav.model.steps}
           status={nav.status}
@@ -1100,6 +1176,9 @@ function MapPage() {
               expanded={routeDetails}
               livePos={livePos}
               canNavigateLive={canNavigateLive}
+              travelMode={plan?.mode ?? travelMode}
+              modeTimes={shownModeTimes}
+              onChooseMode={chooseMode}
               onSelect={(id) => setPlan((p) => ({ ...p, selectedId: id }))}
               onPin={() => setDropped({ ...plan.destination, name: plan.destinationName, kind: 'shared', pinning: true })}
               onClear={clearDirections}
@@ -1237,6 +1316,12 @@ function MapPage() {
           onShare={() => selectedGem && handleShare({ lat: selectedGem.lat, lng: selectedGem.lng, name: selectedGem.name })}
           onToggleSave={selectedGem ? () => handleToggleSave(selectedGem.id) : null}
           onRate={selectedGem ? (n) => handleRate(selectedGem.id, n) : null}
+          onReportEnded={() => {
+            const id = selectedIncident?.id
+            setSelected(null)
+            setIncidents((prev) => prev.filter((r) => r.id !== id))
+            setNotice('Thanks. That report has been taken off the map.')
+          }}
         />
       )}
     </div>

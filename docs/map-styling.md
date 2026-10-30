@@ -201,7 +201,7 @@ JSON styles and a Map ID can't be used together: with the ID set, the driving ma
 
 **Setting it up** (needs someone with access to the Google Cloud project behind the Maps key):
 
-1. Cloud Console → Google Maps Platform → **Map Styles** → Create style. Choose **Import JSON** and paste the rules from `mapStyle.js` (`DARK` followed by `DECLUTTER`). Then switch the style to its light variant and import `LIGHT` + `DECLUTTER`, so the one style has both a dark and a light mode. Save.
+1. Cloud Console → Google Maps Platform → **Map Styles** → Create style. Choose **Import JSON** and paste `docs/map-style-dark.json`. Then switch the style to its light variant and import `docs/map-style-light.json`, so the one style has both a dark and a light mode. Save. (Both files are `mapStyle.js` — the theme's colours plus the declutter rules that hide Google's own places — regenerated with `node --input-type=module -e "import { mapStyles } from './src/lib/mapStyle.js'; ..."` if the code style changes.)
 2. **Map Management** → Create Map ID: type **JavaScript**, **Vector**, with *Tilt* and *Rotation* both ticked. Attach the style from step 1 to it.
 3. Add the ID to the app's environment (`.env` locally, and the Vercel project's environment variables):
    ```

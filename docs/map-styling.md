@@ -201,8 +201,8 @@ JSON styles and a Map ID can't be used together: with the ID set, the driving ma
 
 **Setting it up** (needs someone with access to the Google Cloud project behind the Maps key):
 
-1. Cloud Console → Google Maps Platform → **Map Styles** → Create style. Choose **Import JSON** and paste `docs/map-style-dark.json`. Then switch the style to its light variant and import `docs/map-style-light.json`, so the one style has both a dark and a light mode. Save. (Both files are `mapStyle.js` — the theme's colours plus the declutter rules that hide Google's own places — regenerated with `node --input-type=module -e "import { mapStyles } from './src/lib/mapStyle.js'; ..."` if the code style changes.)
-2. **Map Management** → Create Map ID: type **JavaScript**, **Vector**, with *Tilt* and *Rotation* both ticked. Attach the style from step 1 to it.
+1. Cloud Console → Google Maps Platform → **Map Styles** → Create style → **JSON** tab, twice: once pasting `docs/map-style-light.json` (name it "PathIQ Light"), once pasting `docs/map-style-dark.json` ("PathIQ Dark"). Save and **Publish** each. These are in Google's current cloud styling format (checked against its schema, `cbms-json-schema.json`) and match `mapStyle.js`: PathIQ's colours, and Google's own places, transit stops and road shields hidden. The older `mapStyle.js` rules can't be pasted directly — the new editor rejects or only approximately converts them. If `mapStyle.js` changes, update these two by hand.
+2. **Map Management** → Create Map ID: type **JavaScript**, **Vector**, with *Tilt* and *Rotation* both ticked. Under its map styles, pick "PathIQ Light" for light mode and "PathIQ Dark" for dark mode, and save.
 3. Add the ID to the app's environment (`.env` locally, and the Vercel project's environment variables):
    ```
    VITE_GOOGLE_MAP_ID=<the map id>

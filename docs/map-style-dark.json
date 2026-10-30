@@ -19,7 +19,7 @@
     {"id": "infrastructure.roadNetwork.roadShield", "label": {"visible": false}},
     {"id": "infrastructure.railwayTrack", "geometry": {"fillColor": "#1A2724"}},
     {"id": "infrastructure.transitStation", "label": {"visible": false}},
-    {"id": "pointOfInterest", "label": {"visible": false}},
-    {"id": "pointOfInterest.recreation.park", "geometry": {"fillColor": "#0E2A21"}}
+    {"id": "pointOfInterest", "geometry": {"visible": false}, "label": {"visible": false}},
+    {"id": "pointOfInterest.recreation.park", "geometry": {"visible": true, "fillColor": "#0E2A21"}}
   ]
 }

@@ -17,7 +17,7 @@
     {"id": "infrastructure.roadNetwork.road.local", "label": {"textFillColor": "#8A9A96"}},
     {"id": "infrastructure.roadNetwork.roadShield", "label": {"visible": false}},
     {"id": "infrastructure.transitStation", "label": {"visible": false}},
-    {"id": "pointOfInterest", "label": {"visible": false}},
-    {"id": "pointOfInterest.recreation.park", "geometry": {"fillColor": "#DCEFE8"}}
+    {"id": "pointOfInterest", "geometry": {"visible": false}, "label": {"visible": false}},
+    {"id": "pointOfInterest.recreation.park", "geometry": {"visible": true, "fillColor": "#DCEFE8"}}
   ]
 }

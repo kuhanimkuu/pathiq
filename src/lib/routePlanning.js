@@ -101,6 +101,17 @@ async function edgeErrorMessage(error) {
   return error.message
 }
 
+// Mid-trip, from where the driver is now: how long to the destination (through
+// the stops still ahead) with live traffic now. { durationS, distanceM }, or
+// null when the routes function has it turned off or it's not a road mode.
+export async function fetchLiveEta(from, destination, stops = [], mode = 'drive') {
+  const { data, error } = await supabase.functions.invoke('routes', {
+    body: { origin: point(from), destination: point(destination), stops: stops.map(point), mode, eta: true },
+  })
+  if (error) throw new Error(await edgeErrorMessage(error))
+  return data?.durationS ? data : null
+}
+
 // Google's encoded polyline format (precision 5) — same algorithm as
 // supabase/functions/_shared/polyline.ts. Returns [{ lat, lng }].
 function decodePolyline(encoded) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { planRoutes, routeLabel } from '../../lib/routePlanning'
+import { planRoutes, routeLabel, fetchLiveEta, travelMode, formatDuration } from '../../lib/routePlanning'
 import { buildNavModel, locate, progress, distanceM, spokenDistance, headingAt, pointAt } from '../../lib/navigation'
 import { itemsAhead, briefing, fetchAiBriefing } from '../../lib/routeAhead'
 import { reportTypeLabel, submitRoadReport, voteRoadReport, fetchReportsToConfirm } from '../../lib/roadReports'
@@ -35,6 +35,23 @@ const CONFIRM_BEFORE_M = 300
 const CONFIRM_SHOW_MS = 15_000
 const CONFIRM_REFRESH_MS = 3 * 60_000
 const REPORT_NOTICE_MS = 6000
+// Live arrival time on the road (car, motorbike): ask Google for the time
+// from here with traffic now this often, but not in a trip's last stretch
+// or just after a reroute (which brought a fresh time anyway). Google's
+// answer only counts if its distance roughly matches the route being driven
+// (otherwise it's timing a different road). A change of this much is spoken.
+const ETA_REFRESH_MS = 5 * 60_000
+const ETA_MIN_LEFT_S = 10 * 60
+const ETA_AFTER_REROUTE_MS = 2 * 60_000
+const ETA_SAME_ROUTE = 0.25
+const ETA_SPEAK_CHANGE_S = 5 * 60
+
+// The time left from the latest live estimate (`liveEta`: the time Google
+// gave and how far was left then), shrinking with the distance since.
+function withLiveEta(step, liveEta) {
+  if (!step || !liveEta) return step
+  return { ...step, remainingS: (liveEta.remainingS * step.remainingM) / Math.max(1, liveEta.remainingM) }
+}
 
 function readMuted() {
   try {
@@ -115,6 +132,11 @@ export default function useTurnByTurn({
   const trackRef = useRef({ s: 0, seg: 0, offCount: 0, lastRerouteAt: 0, lastSavedStep: -1 })
   const spokenRef = useRef(new Set())
   const collectorRef = useRef(null) // road-data contributions for this trip, when opted in
+  const etaRef = useRef(0) // when the trip's time was last fresh (start, reroute, live refresh)
+  const navRef = useRef(null) // the latest nav and driver, for the live-time timer
+  useEffect(() => {
+    navRef.current = { nav, driver, speak }
+  })
   const navActive = nav != null && nav.status !== 'arrived'
 
   // Queued, so an alert doesn't cut off the turn just announced; `interrupt`
@@ -200,6 +222,7 @@ export default function useTurnByTurn({
     setGemAlert(null)
     setReportAlert(null)
     setConfirmPrompt(null)
+    etaRef.current = Date.now()
     setNav(next)
     if (!resumed && userId) {
       startTrip(userId, { origin: livePos ?? position, destination, destinationName, option })
@@ -310,9 +333,11 @@ export default function useTurnByTurn({
       spokenRef.current = new Set()
       onRerouted({ from, stops, options, option })
       requestBriefing({ ...current, model, stops, stopsReached: 0, routeId: option.id, traffic: option.traffic ?? [] }, loc.s)
+      etaRef.current = Date.now()
       setNav((n) => n && {
         ...n,
         status: 'active',
+        liveEta: null, // the new route's own time is fresh
         stops,
         stopsReached: 0,
         model,
@@ -516,7 +541,7 @@ export default function useTurnByTurn({
       reroute(pos, current)
       return
     }
-    const step = progress(current.model, t.s)
+    const step = withLiveEta(progress(current.model, t.s), current.liveEta)
     const updated = { ...current, step, stopsReached }
     setNav(updated)
     announce(step)
@@ -543,6 +568,43 @@ export default function useTurnByTurn({
     if (navActive && !('geolocation' in navigator)) {
       queueMicrotask(() => setNavError('This device has no GPS — navigation needs your live location.'))
     }
+  }, [navActive])
+
+  // The live arrival time (car, motorbike): every ETA_REFRESH_MS, Google's
+  // time from here with traffic now replaces the estimate from the start of
+  // the trip, so a jam that builds or clears shows up in the arrival time.
+  useEffect(() => {
+    if (!navActive) return
+    const check = () => {
+      const { nav: n, driver: d, speak: say } = navRef.current ?? {}
+      if (!n || n.status !== 'active' || !n.step || !d?.pos) return
+      if (!travelMode(n.mode).road) return
+      if (Date.now() - etaRef.current < ETA_REFRESH_MS) return
+      if (n.step.remainingS < ETA_MIN_LEFT_S) return
+      if (Date.now() - trackRef.current.lastRerouteAt < ETA_AFTER_REROUTE_MS) return
+      etaRef.current = Date.now()
+      const asked = { routeId: n.routeId, remainingM: n.step.remainingM, remainingS: n.step.remainingS }
+      fetchLiveEta(d.pos, n.destination, n.stops.slice(n.stopsReached), n.mode)
+        .then((eta) => {
+          if (!eta) return
+          // Google timed a different road: keep what we have.
+          if (Math.abs(eta.distanceM - asked.remainingM) / Math.max(1, asked.remainingM) > ETA_SAME_ROUTE) return
+          setNav((cur) => {
+            if (!cur || cur.status !== 'active' || cur.routeId !== asked.routeId) return cur
+            const liveEta = { remainingS: eta.durationS, remainingM: asked.remainingM }
+            return { ...cur, liveEta, step: withLiveEta(cur.step, liveEta) }
+          })
+          const change = eta.durationS - asked.remainingS
+          if (Math.abs(change) >= ETA_SPEAK_CHANGE_S) {
+            const arrive = new Date(Date.now() + eta.durationS * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            say(`${change > 0 ? 'Traffic has built up' : 'Traffic has cleared'}. Arriving around ${arrive}, ${formatDuration(eta.durationS)} from now.`)
+          }
+        })
+        .catch(() => {}) // keep the estimate we have
+    }
+    const timer = setInterval(check, 60_000)
+    return () => clearInterval(timer)
+    // Everything it reads (nav, driver, speak with the mute setting) comes through navRef.
   }, [navActive])
 
   // Keep the screen on while navigating.

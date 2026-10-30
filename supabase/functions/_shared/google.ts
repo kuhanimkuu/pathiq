@@ -247,9 +247,11 @@ export async function computeModeSummary(
   origin: LatLng,
   destination: LatLng,
   mode: TravelMode,
+  stops: LatLng[] = [],
 ): Promise<{ durationS: number; distanceM: number } | null> {
   const { polylineQuality: _quality, polylineEncoding: _encoding, ...body } = routeRequestBody(origin, destination, {
     mode,
+    stops,
     alternatives: false,
   })
   const response = await fetch(ENDPOINT, {

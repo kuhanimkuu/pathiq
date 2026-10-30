@@ -1,7 +1,7 @@
 // POST /functions/v1/routes
 // Body: { origin: { lat, lng }, destination: { lat, lng }, stops?: [{ lat, lng }],
 //         mode?: 'drive' | 'two_wheeler' | 'bus' | 'train' | 'bicycle' | 'walk',
-//         modeTimes?: true }
+//         modeTimes?: true, eta?: true }
 //
 // `stops` (up to MAX_STOPS, in order) are places to stop at on the way. With
 // stops Google returns a single route, so there's nothing to compare. Bus and
@@ -18,6 +18,10 @@
 // other mode — { modes: [{ mode, durationS, distanceM } | { mode, unavailable }] }
 // — for the mode tabs. Each is a cheap time-only request, cached like routes;
 // set ROUTES_MODE_TIMES=false to turn them off (the tabs then show no times).
+//
+// With `eta: true` (while navigating, from where the driver is now) it returns
+// just { durationS, distanceM } with live traffic, so the app's arrival time
+// follows the traffic during the trip. ROUTES_ETA_REFRESH=false turns it off.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, json } from '../_shared/cors.ts'
@@ -63,6 +67,10 @@ const TRAFFIC_ON_POLYLINE = Deno.env.get('ROUTES_TRAFFIC_ON_POLYLINE') !== 'fals
 // The mode tabs' times: up to five extra (cheap, cached) Google requests per
 // destination. ROUTES_MODE_TIMES=false turns them off.
 const MODE_TIMES = Deno.env.get('ROUTES_MODE_TIMES') !== 'false'
+// The live arrival time while navigating: one time-only request with live
+// traffic every few minutes of a trip (see `eta` below). ROUTES_ETA_REFRESH=false
+// turns it off; the app then keeps the estimate from when the trip started.
+const ETA_REFRESH = Deno.env.get('ROUTES_ETA_REFRESH') !== 'false'
 
 // Any real point on Earth. PathIQ works worldwide; Google's own coverage
 // decides what comes back.
@@ -132,7 +140,7 @@ Deno.serve(async (req) => {
   // The body is a handful of points; anything big is not a real request.
   if (Number(req.headers.get('content-length') ?? 0) > 4096) return json({ error: 'Body too large' }, 413)
 
-  let body: { origin?: unknown; destination?: unknown; stops?: unknown; mode?: unknown; modeTimes?: unknown }
+  let body: { origin?: unknown; destination?: unknown; stops?: unknown; mode?: unknown; modeTimes?: unknown; eta?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -185,6 +193,45 @@ Deno.serve(async (req) => {
     return tooMany('Too many route requests from this network. Please wait a few minutes and try again.')
   }
 
+  // Mid-trip: how long from here (origin) to the destination through the
+  // stops still ahead, with live traffic now — { durationS, distanceM }, or
+  // { off: true } when turned off. Road modes only: walking, cycling and
+  // transit times don't change with traffic.
+  if (body.eta === true) {
+    if (!ETA_REFRESH || !hasTraffic(mode)) return json({ off: true })
+    const etaKey = cacheKey(origin, destination, stopPoints, mode, 'eta')
+    const { data: etaHit } = await admin
+      .from('route_cache')
+      .select('response')
+      .eq('key', etaKey)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle()
+    if (etaHit) {
+      await track('cache')
+      return json(etaHit.response)
+    }
+    if (!(await consume('routes:google:global', GLOBAL_GOOGLE_CALLS_PER_HOUR, '1 hour'))) {
+      await track('limited')
+      return json({ error: 'Routing is busy right now.' }, 503, { 'Retry-After': '300' })
+    }
+    try {
+      const summary = await computeModeSummary(googleKey, origin, destination, mode, stopPoints)
+      await track('google')
+      if (!summary) return json({ error: 'No route found' }, 404)
+      // Shared briefly by anyone asking from the same ~110 m spot.
+      await admin.from('route_cache').upsert({
+        key: etaKey,
+        response: summary,
+        expires_at: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+      })
+      return json(summary)
+    } catch (error) {
+      console.error(error)
+      await track('error')
+      return json({ error: 'Could not get a live time from Google' }, 502)
+    }
+  }
+
   // The mode tabs: how long by every other way of travelling.
   if (body.modeTimes === true) {
     if (!MODE_TIMES) return json({ modes: [] })
@@ -208,7 +255,7 @@ Deno.serve(async (req) => {
         }
         try {
           // Stops are kept for the road modes, so the times compare like for like.
-          const summary = await computeModeSummary(googleKey, origin, destination, m)
+          const summary = await computeModeSummary(googleKey, origin, destination, m, stopPoints)
           await track('google')
           const response = summary ?? { unavailable: true }
           await admin.from('route_cache').upsert({

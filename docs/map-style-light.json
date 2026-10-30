@@ -12,12 +12,19 @@
     {"id": "infrastructure", "label": {"textFillColor": "#5F706C", "textStrokeColor": "#FFFFFF"}},
     {"id": "infrastructure.urbanArea", "geometry": {"fillColor": "#EEF2F1"}},
     {"id": "infrastructure.building", "geometry": {"fillColor": "#EEF2F1"}},
+    {"id": "infrastructure.building.commercial", "geometry": {"fillColor": "#EEF2F1"}},
+    {"id": "infrastructure.businessCorridor", "geometry": {"fillColor": "#F4F7F6"}},
     {"id": "infrastructure.roadNetwork.road", "geometry": {"fillColor": "#FFFFFF", "strokeColor": "#DDE5E2"}},
     {"id": "infrastructure.roadNetwork.road.highway", "geometry": {"fillColor": "#E3ECE9", "strokeColor": "#C9D6D2"}},
     {"id": "infrastructure.roadNetwork.road.local", "label": {"textFillColor": "#8A9A96"}},
     {"id": "infrastructure.roadNetwork.roadShield", "label": {"visible": false}},
     {"id": "infrastructure.transitStation", "label": {"visible": false}},
     {"id": "pointOfInterest", "geometry": {"visible": false}, "label": {"visible": false}},
+    {"id": "pointOfInterest.emergency", "geometry": {"visible": false}},
+    {"id": "pointOfInterest.other", "geometry": {"visible": false}},
+    {"id": "pointOfInterest.service", "geometry": {"visible": false}},
+    {"id": "pointOfInterest.transit", "geometry": {"visible": false}},
+    {"id": "pointOfInterest.recreation", "geometry": {"visible": false}},
     {"id": "pointOfInterest.recreation.park", "geometry": {"visible": true, "fillColor": "#DCEFE8"}}
   ]
 }
